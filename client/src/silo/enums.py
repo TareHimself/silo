@@ -1,8 +1,10 @@
 from enum import Enum
 
+
 class BuildMode(Enum):
     Debug = "debug"
     Release = "release"
+
 
 class Compiler(Enum):
     Clang = "clang"
@@ -10,10 +12,12 @@ class Compiler(Enum):
     GCC = "gcc"
     MSVC = "msvc"
 
+
 class Platform(Enum):
-    Windows = "Windows"
-    Linux = "Linux"
-    Darwin = "Darwin"
+    Windows = "windows"
+    Linux = "linux"
+    Darwin = "macos"
+
 
 class Architecture(Enum):
     X86_64 = "x86_64"
