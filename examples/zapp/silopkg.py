@@ -10,13 +10,14 @@ class Zapp(SiloPackage):
         src.local(".")
 
     def deps(self):
-        self.dep("../../recipes/zlib")
+        # CMakeLists.txt asks for Freetype::Freetype, the name CMake's own find module uses
+        self.dep("../../recipes/freetype", aliases={"Freetype::Freetype": "freetype::freetype"})
         self.tool("cmake@4.3")
         self.tool("ninja@1.13")
 
     def validate(self):
-        if self.dependencies["zlib"].options.shared:
-            raise InvalidConfiguration("zapp needs a static zlib")
+        if self.dependencies["freetype"].options.shared:
+            raise InvalidConfiguration("zapp needs a static freetype")
 
     def build(self):
         cmake = CMakeBuild(self)

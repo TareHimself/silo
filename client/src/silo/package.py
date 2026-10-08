@@ -6,6 +6,7 @@ from pathlib import Path
 
 import xxhash
 
+from silo.errors import SiloError
 from silo.platform.base import PlatformBackend
 from silo.source import sha256_of
 
@@ -32,6 +33,8 @@ class Component:
     shared_libs: Sequence[SharedLib] = ()
     executables: Sequence[str] = ()
     content: Sequence[str] = ()
+    # What consumers must also link. "zlib" is a whole package and "zlib::zlib" one of its
+    # components; a component of this package is "<package>::<name>". Nothing is implied.
     requires: Sequence[str | Requirement] = ()
     defines: Sequence[str] = ()
     system_libs: Sequence[str] = ()
@@ -138,13 +141,53 @@ def _component_artifacts(
     return artifacts
 
 
-def _component_manifest(component: Component, artifacts: list[dict]) -> dict:
-    requires = [
-        requirement
-        if isinstance(requirement, str)
-        else {"ref": requirement.ref, "headers": requirement.headers}
-        for requirement in component.requires
-    ]
+def stored_components(package_dir: Path) -> list[str]:
+    """The component names of a package already in the store."""
+    manifest = json.loads((package_dir / "silo" / "package.json").read_text(encoding="utf-8"))
+    return list(manifest["components"])
+
+
+def _targets_of(reference: str, known: dict[str, list[str]], required_by: str) -> list[str]:
+    """Expand "zlib" to all of zlib's components, and check "zlib::zlib" names a real one."""
+    package, separator, component = reference.partition("::")
+    if package not in known:
+        raise SiloError(
+            f"{required_by} requires '{reference}', but '{package}' is neither this package "
+            f"nor one of its direct dependencies ({', '.join(sorted(known)) or 'none'})"
+        )
+    if not separator:
+        return [f"{package}::{name}" for name in known[package]]
+    if component not in known[package]:
+        raise SiloError(
+            f"{required_by} requires '{reference}', but {package} has no component "
+            f"'{component}' (it has {', '.join(known[package])})"
+        )
+    return [reference]
+
+
+def _resolved_requires(
+    component: Component,
+    package_name: str,
+    own_components: list[str],
+    dependency_components: dict[str, list[str]],
+) -> list[str | dict]:
+    known = dependency_components | {package_name: own_components}
+    required_by = f"{package_name}::{component.name}"
+    resolved: list[str | dict] = []
+    for requirement in component.requires:
+        if isinstance(requirement, str):
+            resolved += _targets_of(requirement, known, required_by)
+        else:
+            resolved += [
+                {"ref": target, "headers": requirement.headers}
+                for target in _targets_of(requirement.ref, known, required_by)
+            ]
+    return resolved
+
+
+def _component_manifest(
+    component: Component, artifacts: list[dict], requires: list[str | dict]
+) -> dict:
     return {
         "artifacts": artifacts,
         "requires": requires,
@@ -179,8 +222,13 @@ def write_package(
     version: str,
     build_id: str,
     backend: PlatformBackend,
+    dependency_components: dict[str, list[str]] | None = None,
 ) -> None:
-    """Copy only what the components list into the store and write silo/package.json."""
+    """Copy only what the components list into the store and write silo/package.json.
+
+    `dependency_components` maps each direct dependency to its component names.
+    """
+    own_components = [component.name for component in package.components]
     staging = store_path.with_name(f".tmp-{store_path.name}")
     if staging.exists():
         shutil.rmtree(staging)
@@ -193,7 +241,8 @@ def write_package(
             _copy_into(staging, install_dir, artifact["path"])
             if "import" in artifact:
                 _copy_into(staging, install_dir, artifact["import"])
-        components[component.name] = _component_manifest(component, artifacts)
+        requires = _resolved_requires(component, name, own_components, dependency_components or {})
+        components[component.name] = _component_manifest(component, artifacts, requires)
 
     manifest = {
         "schema": SCHEMA,

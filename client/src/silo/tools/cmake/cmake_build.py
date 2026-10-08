@@ -5,11 +5,13 @@ from silo.tools.cmake.cmake_deps import write_dependency_configs
 
 CacheValue = str | bool | int
 
-# Stop find_package() from picking up packages registered on the machine
+# Make find_package() see silo's generated configs and nothing registered on the machine.
+# PREFER_CONFIG matters because CMake otherwise tries its own FindZLIB-style modules first.
 ISOLATION: dict[str, CacheValue] = {
     "CMAKE_FIND_USE_PACKAGE_REGISTRY": False,
     "CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY": False,
     "CMAKE_FIND_USE_CMAKE_SYSTEM_PATH": False,
+    "CMAKE_FIND_PACKAGE_PREFER_CONFIG": True,
 }
 
 
@@ -42,11 +44,11 @@ class CMakeBuild:
             defines = backend.hardening_defines(profile)
             # _INIT adds to CMake's default flags, where CMAKE_CXX_FLAGS would replace them
             entries["CMAKE_CXX_FLAGS_INIT"] = " ".join(f"-D{define}" for define in defines)
-        config_dirs = write_dependency_configs(
-            context.dependency_packages, context.generated_dir / "cmake"
+        configs_dir = context.generated_dir / "cmake"
+        write_dependency_configs(
+            context.dependency_packages, configs_dir, context.dependency_aliases
         )
-        for name, config_dir in config_dirs.items():
-            entries[f"{name}_DIR"] = config_dir.as_posix()
+        entries["CMAKE_PREFIX_PATH"] = configs_dir.as_posix()
         entries |= cache
         self.package.run(
             ["cmake", "-S", context.source_dir, "-B", context.build_dir, "-G", "Ninja"]

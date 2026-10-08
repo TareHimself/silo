@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from silo.errors import SiloError
 from silo.package import Component, Package, write_package
 from silo.platform.linux import LinuxBackend
 from silo.platform.windows import WindowsBackend
@@ -62,3 +63,42 @@ def test_write_package_reports_a_missing_library(tmp_path):
 
     with pytest.raises(RuntimeError, match="'demo' was not found"):
         write_package(package, install, tmp_path / "out", "demo", "1.0", "abc", WindowsBackend())
+
+
+def stored_requires(tmp_path, component, dependency_components):
+    install = make_install_tree(tmp_path / "install", ["include/demo.h"])
+    store_path = tmp_path / "store" / "demo-1.0-abc"
+    package = Package([component, Component("extra")])
+    write_package(
+        package, install, store_path, "demo", "1.0", "abc", WindowsBackend(), dependency_components
+    )
+    manifest = json.loads((store_path / "silo" / "package.json").read_text(encoding="utf-8"))
+    return manifest["components"][component.name]["requires"]
+
+
+DEPENDENCIES = {"zlib": ["zlib"], "openssl": ["ssl", "crypto"]}
+
+
+def test_nothing_is_required_unless_the_recipe_says_so(tmp_path):
+    assert stored_requires(tmp_path, Component("demo"), DEPENDENCIES) == []
+
+
+def test_a_bare_package_name_requires_all_of_its_components(tmp_path):
+    requires = stored_requires(tmp_path, Component("demo", requires=["openssl"]), DEPENDENCIES)
+
+    assert requires == ["openssl::ssl", "openssl::crypto"]
+
+
+def test_requires_can_name_one_component_or_a_sibling(tmp_path):
+    component = Component("demo", requires=["openssl::crypto", "demo::extra"])
+
+    assert stored_requires(tmp_path, component, DEPENDENCIES) == ["openssl::crypto", "demo::extra"]
+
+
+@pytest.mark.parametrize(
+    ("reference", "message"),
+    [("libpng", "neither this package nor one of its direct dependencies"), ("zlib::z", "has no")],
+)
+def test_requiring_something_unknown_is_an_error(tmp_path, reference, message):
+    with pytest.raises(SiloError, match=message):
+        stored_requires(tmp_path, Component("demo", requires=[reference]), DEPENDENCIES)

@@ -27,6 +27,8 @@ class Node:
     build_type: BuildMode
     overridden: bool
     dependency_names: list[str]
+    # Alias target -> real target, as this package's recipe declared on its dependencies
+    aliases: dict[str, str]
 
     @property
     def name(self) -> str:
@@ -204,6 +206,19 @@ def _check_overrides(result: _Pass, cli_options: dict[str, OptionValues]) -> Non
             )
 
 
+def _declared_aliases(package: SiloPackage, dependency_names: list[str]) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for dependency, dependency_name in zip(package._declared_deps, dependency_names, strict=True):
+        for alias, target in (dependency.aliases or {}).items():
+            if target.split("::")[0] != dependency_name:
+                raise ResolutionError(
+                    f"{package.name} aliases '{alias}' to '{target}', which is not a target of "
+                    f"{dependency_name}. Targets look like {dependency_name}::<component>."
+                )
+            aliases[alias] = target
+    return aliases
+
+
 def _resolve_source(package: SiloPackage, override: Override, root_dir: Path) -> SourceSpec:
     """The recipe's declared source, or the folder the root recipe pointed it at."""
     source = SourceSpec()
@@ -246,6 +261,7 @@ def resolve(
             build_type=override.build_type or default_build_type,
             overridden=name in overrides or name in resolver.cli_options,
             dependency_names=result.edges[name],
+            aliases=_declared_aliases(package, result.edges[name]),
         )
 
     for node in nodes.values():

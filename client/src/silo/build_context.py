@@ -20,6 +20,8 @@ class BuildContext:
     local_source: bool
     # Store paths of every package this one depends on, directly or not
     dependency_packages: dict[str, Path] = field(default_factory=dict)
+    # Alias target -> real target, from this recipe's self.dep(..., aliases=)
+    dependency_aliases: dict[str, str] = field(default_factory=dict)
 
     @property
     def install_dir(self) -> Path:

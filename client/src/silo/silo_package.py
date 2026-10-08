@@ -52,8 +52,18 @@ class SiloPackage(Generic[T]):
 
     # Declarations, called from deps()
 
-    def dep(self, spec: str, options: dict[str, OptionValue] | None = None):
-        self._declared_deps.append(Dependency.from_str(spec, options))
+    def dep(
+        self,
+        spec: str,
+        options: dict[str, OptionValue] | None = None,
+        aliases: dict[str, str] | None = None,
+    ):
+        """Depend on another recipe.
+
+        `aliases` gives its targets extra names in this recipe's build only, for upstream
+        build files that expect them: aliases={"ZLIB::ZLIB": "zlib::zlib"}.
+        """
+        self._declared_deps.append(Dependency.from_str(spec, options, aliases))
 
     def tool(self, spec: str, options: dict[str, OptionValue] | None = None):
         self._declared_tools.append(Dependency.from_str(spec, options))

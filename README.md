@@ -7,7 +7,7 @@ A C++ package manager: builds dependencies from source in an isolated environmen
 ```
 uv run --package silo silo profile detect             # writes <SILO_HOME>/profiles/default.toml
 uv run --package silo silo build recipes/zlib         # builds into <SILO_HOME>/store
-uv run --package silo silo build examples/zapp        # a local project that depends on zlib
+uv run --package silo silo build examples/zapp        # a local project: zapp -> freetype -> zlib
 uv run --package silo silo build examples/zapp --debug  # root in debug, dependencies stay release
 uv run --package silo silo sync examples/zapp         # resolve and print the graph, build nothing
 ```
@@ -62,8 +62,8 @@ cli.build
 | `client/src/silo/errors.py` | Errors the CLI prints without a traceback |
 | `client/src/silo/platform/` | Everything OS specific, behind `PlatformBackend` |
 | `client/src/silo/tools/cmake/` | `CMakeBuild` for recipes, and the dependency config generator |
-| `recipes/` | Recipes (`silopkg.py`) for third-party libraries |
-| `examples/zapp/` | A local project: `src.local(".")`, a path dependency and a `validate` hook |
+| `recipes/` | Recipes (`silopkg.py`) for third-party libraries: zlib and freetype |
+| `examples/zapp/` | A local project: `src.local(".")`, a path dependency with an alias, and a `validate` hook |
 | `client/tests/` | Unit tests |
 
 To add a platform, implement `PlatformBackend` (`platform/base.py`) in its own folder and return it from `backend_for` in `platform/__init__.py`. Nothing outside `platform/` should check the operating system.

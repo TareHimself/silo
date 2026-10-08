@@ -19,13 +19,20 @@ class Dependency(BaseModel):
     version: str | None = None
     path: str | None = None
     options: dict[str, OptionValue] | None = None
+    # Extra names for this dependency's targets in the declaring recipe's own build,
+    # such as {"ZLIB::ZLIB": "zlib::zlib"}
+    aliases: dict[str, str] | None = None
 
     @staticmethod
-    def from_str(spec: str, options: dict[str, OptionValue] | None = None) -> "Dependency":
+    def from_str(
+        spec: str,
+        options: dict[str, OptionValue] | None = None,
+        aliases: dict[str, str] | None = None,
+    ) -> "Dependency":
         if _looks_like_path(spec):
-            return Dependency(path=spec, options=options)
+            return Dependency(path=spec, options=options, aliases=aliases)
         name, _, version = spec.partition("@")
-        return Dependency(name=name, version=version or None, options=options)
+        return Dependency(name=name, version=version or None, options=options, aliases=aliases)
 
 
 @dataclass(frozen=True)

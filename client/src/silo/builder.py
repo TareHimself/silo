@@ -11,10 +11,12 @@ from silo.build_profile import Profile
 from silo.dependency import OptionValue
 from silo.dependency_graph import Node, resolve, validate
 from silo.enums import BuildMode
+from silo.errors import SiloError
 from silo.git_snapshot import checkout_tree
-from silo.package import Package, write_package
+from silo.package import Package, stored_components, write_package
 from silo.paths import store_dir, work_dir
 from silo.platform import backend_for
+from silo.platform.base import PlatformBackend
 from silo.source import SourceTree, unpack_fetched
 from silo.tool_resolver import resolve_tool
 
@@ -96,6 +98,18 @@ def prepare_source(node: Node, dirs: WorkDirs) -> None:
     dirs.source_state.write_text(json.dumps(wanted))
 
 
+def inferred_package(node: Node, backend: PlatformBackend) -> Package:
+    package = Package.infer(node.package.install_dir, node.name, backend)
+    has_library = any(component.static_libs for component in package.components)
+    if has_library and node.dependency_names:
+        # An inferred library would silently drop what its consumers must also link
+        raise SiloError(
+            f"{node.name} builds a library and depends on {', '.join(node.dependency_names)}. "
+            "Add a package() hook whose components say what they require."
+        )
+    return package
+
+
 def build_node(
     node: Node, build_id: str, profile: Profile, dependency_packages: dict[str, Path]
 ) -> Path:
@@ -124,6 +138,7 @@ def build_node(
         install_prefix=f"/silo-prefix-{key}",
         local_source=node.source.local_source,
         dependency_packages=dependency_packages,
+        dependency_aliases=node.aliases,
     )
 
     print(f"{label}: preparing source")
@@ -132,7 +147,7 @@ def build_node(
     print(f"{label}: building ({node.build_type.value})")
     package.build()
 
-    described = package.package() or Package.infer(package.install_dir, node.name, backend)
+    described = package.package() or inferred_package(node, backend)
     write_package(
         described,
         package.install_dir,
@@ -141,6 +156,10 @@ def build_node(
         node.version,
         build_id,
         backend,
+        {
+            dependency: stored_components(dependency_packages[dependency])
+            for dependency in node.dependency_names
+        },
     )
     print(f"{label}: stored at {store_path}")
     return store_path
