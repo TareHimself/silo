@@ -1,0 +1,17 @@
+[project]
+name = "silo_common"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "filelock>=3.29.0",
+    "typer>=0.25.1",
+    "xxhash>=3.7.0",
+]
+
+[tool.uv.workspace]
+members = [
+    "client",
+    "server"
+]
