@@ -53,7 +53,7 @@ def load_demo_recipe(tmp_path):
         recipe_dir = tmp_path / "demo"
         recipe_dir.mkdir(exist_ok=True)
         recipe = recipe_dir / "silopkg.py"
-        recipe.write_text(RECIPE_HEADER + extra_class_body, encoding="utf-8")
+        recipe.write_text(RECIPE_HEADER + extra_class_body, encoding="utf-8", newline="\n")
         return load_package_cls(recipe_dir)(recipe, Options())
 
     return load

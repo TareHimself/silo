@@ -5,7 +5,7 @@ import xxhash
 
 from silo.build_profile import Profile
 from silo.enums import BuildMode
-from silo.git_snapshot import find_repo, snapshot_tree
+from silo.errors import SiloError
 from silo.silo_package import SiloPackage
 from silo.source import SourceSpec
 
@@ -16,6 +16,7 @@ ALL_SETTINGS = ("os", "arch", "compiler", "build_type", "cppstd", "libcxx")
 CXX_ONLY_SETTINGS = {"cppstd", "libcxx"}
 BINARY_SETTINGS = {"os", "arch", "compiler", "build_type"}
 IGNORED_RECIPE_DIRS = {"__pycache__", ".silo", ".venv"}
+RECIPE_FILE = "silopkg.py"
 
 
 def _recipe_files(recipe_dir: Path) -> Iterator[Path]:
@@ -25,15 +26,28 @@ def _recipe_files(recipe_dir: Path) -> Iterator[Path]:
             yield relative
 
 
-def recipe_tree_hash(recipe_dir: Path) -> str:
-    """Covers the recipe, its patches and helpers. Uses git where it can, to honor .gitignore."""
-    if find_repo(recipe_dir) is not None:
-        return snapshot_tree(recipe_dir)
+def _recipe_bytes(file: Path) -> bytes:
+    content = file.read_bytes()
+    # A file with a zero byte is not text, so it has no line endings to speak of
+    if b"\r\n" in content and b"\0" not in content:
+        raise SiloError(
+            f"{file} has Windows line endings (CRLF). Save it with LF, so the recipe has the "
+            "same hash on every machine."
+        )
+    return content
 
+
+def recipe_hash(recipe_dir: Path, local_source: bool) -> str:
+    """Covers the recipe file and, for a recipe in a registry, the patches and helpers beside it.
+
+    A recipe that builds a local folder sits in the project it builds, whose files the
+    source snapshot already covers. Only its silopkg.py counts here.
+    """
+    files = [Path(RECIPE_FILE)] if local_source else _recipe_files(recipe_dir)
     tree = xxhash.xxh128()
-    for relative in _recipe_files(recipe_dir):
+    for relative in files:
         tree.update(relative.as_posix().encode())
-        tree.update((recipe_dir / relative).read_bytes())
+        tree.update(_recipe_bytes(recipe_dir / relative))
     return tree.hexdigest()
 
 
@@ -72,7 +86,7 @@ def make_build_id(
     dependency_ids: Iterable[str] = (),
 ) -> str:
     inputs = xxhash.xxh128()
-    inputs.update(recipe_tree_hash(package.recipe_dir).encode())
+    inputs.update(recipe_hash(package.recipe_dir, source.local_source).encode())
     inputs.update(source.id.encode())
     inputs.update(HELPERS_VERSION.encode())
     for setting in relevant_settings(package):

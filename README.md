@@ -48,6 +48,8 @@ and depends on packages by name and exact version: `self.dep("zlib@1.3.1")`, `se
 - Only the root project's `silo.config.toml` counts. A dependency's own file is ignored.
 - Each fetched commit is its own folder under `<SILO_HOME>/cache/registries` and is never changed.
 - Publishing a recipe is a `git push` to the registry. A new version is a new folder.
+- A recipe's hash is the bytes of the files in its folder, so it is the same in a working copy, a fetched registry or an unpacked archive. A recipe file with Windows line endings (CRLF) is refused. A `.gitattributes` with `* text=auto eol=lf` keeps a registry on LF for everyone.
+- For a project's own recipe, which builds the folder it sits in, only `silopkg.py` is hashed. The source snapshot covers the rest.
 
 ## Develop
 

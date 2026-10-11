@@ -13,7 +13,7 @@ import xxhash
 from filelock import FileLock, Timeout
 
 from silo.build_context import BuildContext
-from silo.build_id import compiler_fingerprint, make_build_id, recipe_tree_hash
+from silo.build_id import compiler_fingerprint, make_build_id, recipe_hash
 from silo.build_profile import Profile
 from silo.cache import remove_tree
 from silo.dependency import OptionValue
@@ -172,7 +172,7 @@ def prepare_source(node: Node, dirs: WorkDirs) -> None:
         return
 
     assert source.local_dir is not None and source.tree is not None
-    wanted = {"tree": source.tree, "recipe": recipe_tree_hash(package.recipe_dir)}
+    wanted = {"tree": source.tree, "recipe": recipe_hash(package.recipe_dir, True)}
     if dirs.source_state.exists() and json.loads(dirs.source_state.read_text()) == wanted:
         return
     checkout_tree(source.local_dir, source.tree, dirs.source, dirs.source_index)

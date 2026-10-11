@@ -1,5 +1,8 @@
-from silo.build_id import compiler_fingerprint, make_build_id, relevant_settings
+import pytest
+
+from silo.build_id import compiler_fingerprint, make_build_id, recipe_hash, relevant_settings
 from silo.enums import BuildMode
+from silo.errors import SiloError
 from silo.source import SourceSpec
 
 RELEASE = BuildMode.Release
@@ -57,3 +60,22 @@ def test_build_id_changes_when_a_file_is_added_to_the_recipe(load_demo_recipe, w
     (package.recipe_dir / "fix.patch").write_text("patch", encoding="utf-8")
 
     assert make_build_id(package, fetched(), windows_profile, RELEASE) != baseline
+
+
+def test_a_recipe_with_windows_line_endings_is_refused(load_demo_recipe, windows_profile):
+    package = load_demo_recipe()
+    recipe = package.recipe_dir / "silopkg.py"
+    recipe.write_bytes(recipe.read_bytes().replace(b"\n", b"\r\n"))
+
+    with pytest.raises(SiloError, match="Windows line endings"):
+        make_build_id(package, fetched(), windows_profile, RELEASE)
+
+
+def test_a_local_projects_recipe_hash_is_its_recipe_file_alone(load_demo_recipe):
+    package = load_demo_recipe()
+    baseline = recipe_hash(package.recipe_dir, local_source=True)
+
+    (package.recipe_dir / "main.cpp").write_text("int main() {}", encoding="utf-8")
+
+    assert recipe_hash(package.recipe_dir, local_source=True) == baseline
+    assert recipe_hash(package.recipe_dir, local_source=False) != baseline

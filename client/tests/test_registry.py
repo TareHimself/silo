@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from silo import registry
-from silo.build_id import recipe_tree_hash
+from silo.build_id import recipe_hash
 from silo.dependency_graph import resolve
 from silo.enums import BuildMode
 from silo.errors import ResolutionError, SiloError
@@ -26,7 +26,7 @@ class Demo(SiloPackage):
 def write_recipe(folder: Path, name: str, version: str, deps: str = "pass") -> Path:
     folder.mkdir(parents=True)
     text = RECIPE.format(name=name, version=version, deps=deps)
-    (folder / "silopkg.py").write_text(text, encoding="utf-8")
+    (folder / "silopkg.py").write_text(text, encoding="utf-8", newline="\n")
     return folder
 
 
@@ -140,7 +140,7 @@ def upstream(tmp_path):
 
 def depend_on(app: Path, spec: str) -> None:
     text = RECIPE.format(name="app", version="1.0", deps=f'self.dep("{spec}")')
-    (app / "silopkg.py").write_text(text, encoding="utf-8")
+    (app / "silopkg.py").write_text(text, encoding="utf-8", newline="\n")
 
 
 def next_run() -> None:
@@ -186,4 +186,4 @@ def test_a_recipe_hashes_the_same_from_a_working_copy_and_from_a_git_registry(up
     fetched = registry.Registry("remote", git=upstream.as_uri())
     recipe = "recipes/zlib/1.3.1"
 
-    assert recipe_tree_hash(fetched.root / recipe) == recipe_tree_hash(upstream / recipe)
+    assert recipe_hash(fetched.root / recipe, False) == recipe_hash(upstream / recipe, False)
