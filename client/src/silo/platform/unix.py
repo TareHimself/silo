@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from silo.build_profile import Profile
@@ -24,7 +25,15 @@ class UnixBackend(PlatformBackend):
 
     def build_env(self, profile: Profile, tool_dirs: list[Path], tmp: Path) -> dict[str, str]:
         compiler = profile.compiler
-        searched = [*tool_dirs, compiler.executable.parent, compiler.cxx.parent, *SYSTEM_DIRS]
+        # A build script that starts with `#!/usr/bin/env python3` gets silo's interpreter
+        python_dir = Path(sys.executable).parent
+        searched = [
+            *tool_dirs,
+            python_dir,
+            compiler.executable.parent,
+            compiler.cxx.parent,
+            *SYSTEM_DIRS,
+        ]
         return {
             "PATH": os.pathsep.join(dict.fromkeys(map(str, searched))),
             "CC": str(compiler.executable),
