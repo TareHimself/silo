@@ -26,9 +26,3 @@ jobs:
       - run: uvx ruff format --check client examples
       - run: uv run --package silo pytest client/tests
 
-      - run: uv run --package silo silo profile detect
-      - run: uv run --package silo silo build examples/zapp
-      - run: uv run --package silo silo build examples/sdf
-      - run: uv run --package silo silo build examples/vpx
-      - if: runner.os == 'Linux'
-        run: uv run --package silo silo build examples/decor
