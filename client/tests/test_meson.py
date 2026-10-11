@@ -139,37 +139,59 @@ FREETYPE = {
             requires=["zlib::zlib"],
             defines=["FT_STATIC"],
             system_libs=["m"],
-            pkg_config={"name": "freetype2", "version": "26.2.20", "variables": {}},
         )
     },
 }
 
 
-def test_a_pc_file_points_into_the_store_and_requires_by_pc_name():
+def test_a_pc_file_points_into_the_store_under_silos_name_and_version():
     text = pc_text(FREETYPE, "freetype", Path("/store/freetype-1"), {"zlib::zlib": "zlib"})
 
     assert "prefix=/store/freetype-1" in text
-    assert "Name: freetype2" in text
-    assert "Version: 26.2.20" in text
+    assert "Name: freetype\n" in text
+    assert "Version: 2.13.3" in text
     assert "Requires: zlib" in text
     assert "Cflags: -I${prefix}/include/freetype2 -DFT_STATIC" in text
     assert "Libs: ${prefix}/lib/libfreetype.a -lm" in text
 
 
-def test_pc_files_carry_a_components_variables(tmp_path):
-    protocols = component(
-        pkg_config={"name": "wayland-protocols", "variables": {"pkgdatadir": "${prefix}/share"}}
-    )
-    manifest = {"name": "protocols", "version": "1.36", "components": {"protocols": protocols}}
-    package_dir = tmp_path / "store" / "protocols-1"
+def stored(tmp_path, manifest: dict) -> Path:
+    package_dir = tmp_path / "store" / f"{manifest['name']}-1"
     (package_dir / "silo").mkdir(parents=True)
     (package_dir / "silo" / "package.json").write_text(json.dumps(manifest))
+    return package_dir
 
-    write_pc_files({"protocols": package_dir}, tmp_path / "pc")
 
-    text = (tmp_path / "pc" / "wayland-protocols.pc").read_text(encoding="utf-8")
-    assert "pkgdatadir=${prefix}/share" in text
-    assert "Version: 1.36" in text
+def test_pc_files_say_where_the_data_folder_and_the_programs_are(tmp_path):
+    scanner = component(artifacts=[{"type": "executable", "path": "bin/wayland-scanner"}])
+    manifest = {"name": "wayland", "version": "1.22.0", "components": {"wayland-scanner": scanner}}
+
+    write_pc_files({"wayland": stored(tmp_path, manifest)}, tmp_path / "pc")
+
+    text = (tmp_path / "pc" / "wayland-scanner.pc").read_text(encoding="utf-8")
+    assert "datadir=${prefix}/share\n" in text
+    assert "pkgdatadir=${datadir}/wayland\n" in text
+    assert "wayland_scanner=${prefix}/bin/wayland-scanner\n" in text
+
+
+def test_an_alias_is_the_same_file_under_the_name_a_build_asks_for(tmp_path):
+    packages = {"freetype": stored(tmp_path, FREETYPE)}
+
+    write_pc_files(packages, tmp_path / "pc", {"freetype2": "freetype::freetype"})
+
+    own = (tmp_path / "pc" / "freetype.pc").read_text(encoding="utf-8")
+    alias = (tmp_path / "pc" / "freetype2.pc").read_text(encoding="utf-8")
+    assert alias == own.replace("Name: freetype\n", "Name: freetype2\n")
+    assert "Version: 2.13.3" in alias
+
+
+def test_an_alias_to_something_that_is_not_there_is_reported(tmp_path):
+    packages = {"freetype": stored(tmp_path, FREETYPE)}
+
+    with pytest.raises(SiloError, match="'zlib' is not a dependency"):
+        write_pc_files(packages, tmp_path / "pc", {"z": "zlib::zlib"})
+    with pytest.raises(SiloError, match="freetype has no component 'ft'"):
+        write_pc_files(packages, tmp_path / "pc", {"freetype2": "freetype::ft"})
 
 
 def test_a_linux_build_gets_both_compilers_and_position_independent_code(linux_profile, tmp_path):

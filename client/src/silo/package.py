@@ -42,12 +42,6 @@ class Component:
     system_libs: list[str] = field(default_factory=list)
     build_modules: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
-    # The name of this component's .pc file, where upstream's differs from the component's
-    pkg_config: str | None = None
-    # freetype 2.13.3 calls itself 26.2.20 there, and its users check that number
-    pkg_config_version: str | None = None
-    # Extra variables for that file, such as {"pkgdatadir": "${prefix}/share/wayland-protocols"}
-    pkg_config_variables: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -238,11 +232,6 @@ def _component_manifest(
         "defines": list(component.defines),
         "system_libs": list(component.system_libs),
         "env": component.env,
-        "pkg_config": {
-            "name": component.pkg_config or component.name,
-            "version": component.pkg_config_version,
-            "variables": component.pkg_config_variables,
-        },
     }
 
 

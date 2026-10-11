@@ -256,7 +256,8 @@ def build(self):
 
 - `MesonGenerator` writes a native file with the compilers, the build type and the prefix. Downloading missing dependencies (wraps) is turned off.
 - `PkgConfigDeps` writes one `.pc` file per component of every dependency and tool, and the build sees only those, never the machine's own.
-- A component's `.pc` file is named after the component. `Component(pkg_config="freetype2", pkg_config_version="26.2.20", pkg_config_variables={...})` changes the name, the version and adds variables, for what upstream's users expect.
+- A component's `.pc` file is named after the component and carries the package's version. It also says where things are: the usual folders (`bindir`, `libdir`, `includedir`, `datadir`, `pkgdatadir`) and one variable per program, such as `wayland_scanner`. A package declares nothing for this.
+- A build that asks for a library under another name gets an alias, in place of an edit to that build: `PkgConfigDeps(self, aliases={"freetype2": "freetype::freetype"})`. It is the same idea as `CMakeDeps` aliases.
 - A build that would compile its install folder into a library is rejected. The recipe points such folders at the machine instead (`/etc`, `/usr/share`), as `glib` in silo-recipes and `fontconfig` in silo-recipes do.
 
 ### Libraries silo cannot build yet
