@@ -12,7 +12,7 @@ class Webm(SiloPackage):
         src.local(".")
 
     def deps(self):
-        self.dep("../../recipes/webmdx")
+        self.dep("webmdx@1.0.0")
         self.tool("cmake@4.3")
         self.tool("ninja@1.13")
 

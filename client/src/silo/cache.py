@@ -22,6 +22,7 @@ CACHES = (
     Cache("git", "repositories fetched by src.git", paths.git_sources_dir),
     Cache("snapshots", "snapshots of local sources", paths.snapshots_dir),
     Cache("conan", "what ConanInstall downloaded and built", paths.conan_dir),
+    Cache("registries", "copies of git registries", paths.registries_dir),
 )
 
 

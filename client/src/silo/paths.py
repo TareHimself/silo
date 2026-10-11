@@ -42,3 +42,7 @@ def snapshots_dir() -> Path:
 
 def conan_dir() -> Path:
     return cache_dir() / "conan"
+
+
+def registries_dir() -> Path:
+    return cache_dir() / "registries"

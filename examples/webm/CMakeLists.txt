@@ -7,4 +7,4 @@ add_executable(webm main.cpp)
 target_link_libraries(webm PRIVATE webmdx::webmdx)
 
 install(TARGETS webm RUNTIME DESTINATION bin)
-install(FILES $<TARGET_RUNTIME_DLLS:webm> DESTINATION bin)
+install(FILES ${SILO_RUNTIME_LIBRARIES} DESTINATION bin)

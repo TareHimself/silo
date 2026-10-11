@@ -28,7 +28,7 @@ from silo.platform.base import PlatformBackend
 from silo.report import BuildReport
 from silo.silo_package import SiloPackage
 from silo.source import SourceTree, fetch_source
-from silo.tool_resolver import resolve_tool
+from silo.tool_resolver import is_fetched_tool, resolve_tool
 
 # Where `silo sync` writes inside a project
 PROJECT_DIR = ".silo"
@@ -67,7 +67,7 @@ def build_environment(
     Shared libraries of its dependencies are findable too, so tests and tools start.
     """
     backend = backend_for(profile.settings.os)
-    fetched = [resolve_tool(tool) for tool in package._declared_tools if not tool.path]
+    fetched = [resolve_tool(tool) for tool in package._declared_tools if is_fetched_tool(tool)]
     tool_dirs = [tool.bin_dir for tool in fetched]
     for tool_package in inputs.tools.values():
         tool_dirs += artifact_dirs(tool_package, "executable")

@@ -181,13 +181,6 @@ def test_a_cycle_is_reported(recipes):
         resolve(recipes("app", deps('self.dep("../a")')), BuildMode.Release).build_order()
 
 
-def test_a_named_dependency_explains_that_only_paths_work(recipes):
-    app = recipes("app", deps('self.dep("zlib@1.3")'))
-
-    with pytest.raises(ResolutionError, match="only path dependencies"):
-        resolve(app, BuildMode.Release)
-
-
 def test_validate_sees_how_a_dependency_was_resolved(recipes):
     recipes("zlib")
     recipes(

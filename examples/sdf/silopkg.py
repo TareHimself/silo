@@ -13,9 +13,9 @@ class Sdf(SiloPackage):
 
     def deps(self):
         # sdf saves PNG files and never reads SVG, so tinyxml2 drops out of the graph
-        self.dep("../../recipes/msdfgen", options={"with_svg": False})
+        self.dep("msdfgen@1.12", options={"with_svg": False})
         # Also as a tool, which puts the msdfgen program on the build PATH
-        self.tool("../../recipes/msdfgen")
+        self.tool("msdfgen@1.12")
         self.tool("cmake@4.3")
         self.tool("ninja@1.13")
 

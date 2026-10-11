@@ -11,7 +11,7 @@ class Zapp(SiloPackage):
 
     def deps(self):
         # CMakeLists.txt asks for Freetype::Freetype, the name CMake's own find module uses
-        self.dep("../../recipes/freetype")
+        self.dep("freetype@2.13.3")
         self.tool("../greetgen")
         self.tool("cmake@4.3")
         self.tool("ninja@1.13")

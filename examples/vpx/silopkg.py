@@ -12,7 +12,7 @@ class Vpx(SiloPackage):
         src.local(".")
 
     def deps(self):
-        self.dep("../../recipes/libvpx")
+        self.dep("libvpx@1.14.1")
         self.tool("cmake@4.3")
         self.tool("ninja@1.13")
 

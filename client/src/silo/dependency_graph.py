@@ -9,8 +9,10 @@ from silo.dependency import Dependency, OptionValue, Override, ResolvedDependenc
 from silo.enums import BuildMode
 from silo.errors import InvalidConfiguration, ResolutionError
 from silo.options import Options
+from silo.registry import Registry, find_recipe, load_registries
 from silo.silo_package import SiloPackage
 from silo.source import SourceSpec
+from silo.tool_resolver import is_fetched_tool
 from silo.utils import get_package_file_path, load_package_cls
 
 OptionValues = dict[str, OptionValue]
@@ -93,11 +95,33 @@ class _Pass:
     decisions: _Decisions
 
 
+def _recipe_dir_of(
+    dependency: Dependency, declared_by: SiloPackage, registries: list[Registry]
+) -> Path:
+    """Where a dependency's recipe is: the path the recipe gave, or a registry's folder."""
+    if dependency.path is not None:
+        return (declared_by.recipe_dir / dependency.path).resolve()
+    assert dependency.name is not None
+    recipe_dir = find_recipe(registries, dependency.name, dependency.version, declared_by.name)
+    found = load_package_cls(recipe_dir)
+    if (found.name, found.version) != (dependency.name, dependency.version):
+        raise ResolutionError(
+            f"{recipe_dir} should hold {dependency.name} {dependency.version}, but its recipe "
+            f"is {found.name} {found.version}."
+        )
+    return recipe_dir.resolve()
+
+
 class _Resolver:
     def __init__(
-        self, root_dir: Path, cli_options: dict[str, OptionValues], profile: Profile | None
+        self,
+        root_dir: Path,
+        cli_options: dict[str, OptionValues],
+        profile: Profile | None,
+        registries: list[Registry],
     ) -> None:
         self.profile = profile
+        self.registries = registries
         self.recipe_dirs: dict[str, Path] = {}
         self.recipe_classes: dict[Path, type[SiloPackage]] = {}
         self.root = self._load_recipe(root_dir)
@@ -124,12 +148,7 @@ class _Resolver:
         return name
 
     def _dependency_name(self, dependency: Dependency, declared_by: SiloPackage) -> str:
-        if dependency.path is None:
-            raise ResolutionError(
-                f"{declared_by.name} depends on '{dependency.name}', but only path dependencies "
-                'are implemented so far. Write self.dep("../path/to/recipe").'
-            )
-        return self._load_recipe(declared_by.recipe_dir / dependency.path)
+        return self._load_recipe(_recipe_dir_of(dependency, declared_by, self.registries))
 
     def _options_for(self, name: str, decisions: _Decisions) -> Options:
         override = decisions.overrides.get(name, Override())
@@ -232,7 +251,9 @@ def _check_shared(result: _Pass) -> None:
             )
 
 
-def _resolve_tools(package: SiloPackage, tool_chain: tuple[Path, ...]) -> list[Graph]:
+def _resolve_tools(
+    package: SiloPackage, tool_chain: tuple[Path, ...], registries: list[Registry]
+) -> list[Graph]:
     """Give each tool recipe a graph of its own, in release.
 
     A tool is run, not linked, so it need not agree with what its user links or with the
@@ -240,10 +261,9 @@ def _resolve_tools(package: SiloPackage, tool_chain: tuple[Path, ...]) -> list[G
     """
     graphs = []
     for tool in package._declared_tools:
-        # A tool given by name, such as "cmake@4.3", is fetched ready-made
-        if not tool.path:
+        if is_fetched_tool(tool):
             continue
-        tool_dir = (package.recipe_dir / tool.path).resolve()
+        tool_dir = _recipe_dir_of(tool, package, registries)
         if tool_dir in tool_chain:
             cycle = [*tool_chain[tool_chain.index(tool_dir) :], tool_dir]
             names = " -> ".join(folder.name for folder in cycle)
@@ -255,6 +275,7 @@ def _resolve_tools(package: SiloPackage, tool_chain: tuple[Path, ...]) -> list[G
                 {"": tool.options} if tool.options else None,
                 tool_chain=(*tool_chain, tool_dir),
                 profile=package._profile,
+                registries=registries,
             )
         )
     return graphs
@@ -288,6 +309,7 @@ def resolve(
     debug_all: bool = False,
     tool_chain: tuple[Path, ...] = (),
     profile: Profile | None = None,
+    registries: list[Registry] | None = None,
 ) -> Graph:
     """Load the root recipe and everything it depends on, with overrides and options applied.
 
@@ -296,10 +318,13 @@ def resolve(
     `debug_all` builds every package in debug, whatever the recipes say. None of these reach
     tools, which are graphs of their own. `tool_chain` is the tools being resolved around
     this one, to catch a tool that needs itself. `profile` is what recipes read in deps()
-    and validate().
+    and validate(). `registries` answer dependencies given by name. Left out, they come
+    from the silo.config.toml nearest to the root recipe.
     """
     cli_sources = cli_sources or {}
-    resolver = _Resolver(root_dir, cli_options or {}, profile)
+    if registries is None:
+        registries = load_registries(root_dir)
+    resolver = _Resolver(root_dir, cli_options or {}, profile, registries)
     result = resolver.settle()
     _check_overrides(result, resolver.cli_options, cli_sources)
     _check_shared(result)
@@ -320,7 +345,7 @@ def resolve(
             build_type=BuildMode.Debug if debug_all else override.build_type or default_build_type,
             overridden=name in overrides or name in resolver.cli_options or name in cli_sources,
             dependency_names=result.edges[name],
-            tools=_resolve_tools(package, tool_chain),
+            tools=_resolve_tools(package, tool_chain, resolver.registries),
         )
 
     for node in nodes.values():

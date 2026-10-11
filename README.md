@@ -6,7 +6,7 @@ A C++ package manager: builds dependencies from source in an isolated environmen
 
 ```
 uv run --package silo silo profile detect             # writes <SILO_HOME>/profiles/default.toml
-uv run --package silo silo build recipes/zlib         # builds into <SILO_HOME>/store
+uv run --package silo silo build ../silo-recipes/recipes/zlib/1.3.1  # builds into <SILO_HOME>/store
 uv run --package silo silo build examples/zapp        # a local project: zapp -> freetype -> zlib
 uv run --package silo silo build examples/zapp --debug  # root in debug, dependencies stay release
 uv run --package silo silo sync examples/zapp         # build the dependencies, write examples/zapp/.silo
@@ -18,7 +18,36 @@ uv run --package silo silo cache list                 # sizes of the caches unde
 uv run --package silo silo cache clear builds git     # delete some caches, or all with no names
 ```
 
-`SILO_HOME` defaults to `~/.silo`. It holds `store` (built packages), `profiles`, and `cache`. Everything under `cache` can be deleted at any time: `builds`, `downloads`, `git`, `snapshots` and `conan`. A build folder is deleted once its package is in the store, except for local sources (kept so rebuilds are incremental) and failed builds (kept for inspection). Each build folder is locked, so a second silo building the same package waits and then reuses the result. Pass options with `-o key=value` for the root package or `-o zlib:key=value` for a dependency. `--source zlib=../zlib` builds that package from a local folder for one run.
+`SILO_HOME` defaults to `~/.silo`. It holds `store` (built packages), `profiles`, and `cache`. Everything under `cache` can be deleted at any time: `builds`, `downloads`, `git`, `snapshots`, `conan` and `registries`. A build folder is deleted once its package is in the store, except for local sources (kept so rebuilds are incremental) and failed builds (kept for inspection). Each build folder is locked, so a second silo building the same package waits and then reuses the result. Pass options with `-o key=value` for the root package or `-o zlib:key=value` for a dependency. `--source zlib=../zlib` builds that package from a local folder for one run.
+
+## Registries
+
+Recipes live outside this repository, in registries. A registry is a folder or a git repository laid out as `recipes/<name>/<version>/silopkg.py`. The recipes silo is developed against are in `silo-recipes`.
+
+A project lists its registries in `silo.config.toml`, next to its recipe or in any folder above it:
+
+```toml
+[[registry]]
+name = "silo-recipes"
+git = "https://github.com/TareHimself/silo-recipes"
+rev = "main"              # optional
+
+[[registry]]
+name = "mine"
+path = "../my-recipes"    # relative to this file
+```
+
+and depends on packages by name and exact version: `self.dep("zlib@1.3.1")`, `self.tool("wayland@1.22.0")`. A path still works for a recipe that is not in a registry: `self.dep("../greetgen")`.
+
+| `rev` | silo does |
+|---|---|
+| left out, a branch or a tag | Asks the remote where it is once per run (`git ls-remote`, no download) and fetches only a commit it does not have. Offline, it uses the last copy and says so |
+| a full commit hash | Stays on that commit. No network once it is fetched |
+
+- Registries are checked in order, and the first one that has the package name at all decides. A later registry cannot shadow an earlier one, and the answer never depends on which recipe asks.
+- Only the root project's `silo.config.toml` counts. A dependency's own file is ignored.
+- Each fetched commit is its own folder under `<SILO_HOME>/cache/registries` and is never changed.
+- Publishing a recipe is a `git push` to the registry. A new version is a new folder.
 
 ## Develop
 
@@ -60,22 +89,26 @@ The `.silo` folder ignores itself in git.
 
 ## Shared libraries at run time
 
-A shared dependency is a `SHARED IMPORTED` target, so `$<TARGET_RUNTIME_DLLS:app>` lists its DLLs. A project installs them beside its program, and the stored package then runs by itself (see `examples/webm/CMakeLists.txt`):
+A program has to ship the shared libraries it links. silo's toolchain file sets `SILO_RUNTIME_LIBRARIES` to those files, for every dependency, and one line installs them beside the program on any system (see `examples/webm/CMakeLists.txt`):
 
 ```cmake
 install(TARGETS app RUNTIME DESTINATION bin)
-install(FILES $<TARGET_RUNTIME_DLLS:app> DESTINATION bin)
+install(FILES ${SILO_RUNTIME_LIBRARIES} DESTINATION bin)
 ```
 
+The stored package then runs by itself. Windows looks beside the program anyway. On Linux silo builds everything with a run path of `$ORIGIN` and `$ORIGIN/../lib`, which means "the folder this file is in", and the list includes the versioned names (`libz.so.1`) a program asks for.
+
 A recipe without a `package()` hook keeps everything its build installed into `bin` when it holds a program. Static dependencies add nothing to the list, since they are already inside the binary.
+
+Some libraries must match the machine they run on, not the one they were built on: a graphics loader matches the driver, libwayland the compositor. Their recipes return `Package(..., system_runtime=True)`. They are built and linked as usual, but left out of the list, so the program uses the machine's copy when it starts. `wayland` in silo-recipes and `vulkan-loader` in silo-recipes do this.
 
 ## Tools
 
 A recipe declares the programs its build runs in `deps()`:
 
 ```python
-self.tool("cmake@4.3")  # fetched ready-made from PyPI (cmake, ninja and conan so far)
-self.tool("../greetgen")  # another recipe, built first
+self.tool("cmake@4.3")  # fetched ready-made from PyPI: cmake, ninja, meson, pkgconf, conan
+self.tool("../greetgen")  # another recipe, built first. By name too: "wayland@1.22.0"
 ```
 
 A tool recipe's executables are put on the build's `PATH` and become CMake targets named `<package>::<program>`, so `find_package(greetgen)` gives `greetgen::greetgen` (see `examples/zapp/CMakeLists.txt`). Folders holding the shared libraries of dependencies and tools are on the search path too, so tests and tools start. `silo run -- <command>` runs anything in that same environment.
@@ -93,13 +126,13 @@ Nothing is shared between these graphs by rule. The store does it: two tools tha
 
 ## Writing recipes
 
-A recipe is a `silopkg.py` holding a class that extends `SiloPackage`. `recipes/tinyxml2` is the smallest CMake one and `recipes/msdfgen` uses most features.
+A recipe is a `silopkg.py` holding a class that extends `SiloPackage`. `tinyxml2` in silo-recipes is the smallest CMake one and `msdfgen` in silo-recipes uses most features.
 
 | Hook | Does | Can read |
 |---|---|---|
 | `source(src)` | `src.fetch(url, sha256=)`, `src.git(url, commit=)`, `src.local(".")` or `src.empty()` | `self.options` |
 | `patch(src)` | `src.apply("fix.patch")`, `src.replace(file, old, new)` | the build context |
-| `deps()` | `self.dep("../zlib")`, `self.tool("cmake@4.3")` | `self.options`, `self.profile` |
+| `deps()` | `self.dep("zlib@1.3.1")`, `self.tool("cmake@4.3")` | `self.options`, `self.profile` |
 | `validate()` | Raises `InvalidConfiguration` for a graph it cannot work with | also `self.dependencies` |
 | `generate()` | Writes build system files, usually `CMakeDeps` and `CMakeGenerator` | everything |
 | `build()` | Usually `CMakeBuild`: configure, build, install | everything |
@@ -109,7 +142,37 @@ A recipe is a `silopkg.py` holding a class that extends `SiloPackage`. `recipes/
 - A recipe that can build a shared library sets `supports_shared = True` and acts on `self.options.shared`. Its options class can change the default.
 - Upstream build files often expect other target names. `CMakeDeps(self).alias("ZLIB::ZLIB", "zlib::zlib")` adds the name for this build only and makes `find_package(ZLIB)` work. An alias for a package or component that is not there fails in `generate()`.
 - The toolchain file stops CMake from finding packages installed on the machine. A recipe that needs one calls `CMakeGenerator(self).allow_system_packages()`.
-- silo builds everything against the release DLL runtime on Windows (`/MD`), in debug builds too. An upstream build file that picks another one has to be told not to (see `recipes/libwebm` and `recipes/msdfgen`).
+- silo builds everything against the release DLL runtime on Windows (`/MD`), in debug builds too. An upstream build file that picks another one has to be told not to (see `libwebm` in silo-recipes and `msdfgen` in silo-recipes).
+
+### Meson and pkg-config
+
+`wayland` in silo-recipes shows all of it. A Meson recipe mirrors a CMake one:
+
+```python
+def deps(self):
+    self.dep("libffi@3.4.6")
+    self.tool("meson@1")
+    self.tool("ninja@1.13")
+    self.tool("pkgconf@3")
+
+def generate(self):
+    PkgConfigDeps(self).generate()
+    meson = MesonGenerator(self)
+    meson.set_option("tests", False)                  # the project's own options
+    meson.set_builtin("default_library", "shared")    # Meson's options
+    meson.generate()
+
+def build(self):
+    meson = MesonBuild(self)
+    meson.configure()
+    meson.build()
+    meson.install()
+```
+
+- `MesonGenerator` writes a native file with the compilers, the build type and the prefix. Downloading missing dependencies (wraps) is turned off.
+- `PkgConfigDeps` writes one `.pc` file per component of every dependency and tool, and the build sees only those, never the machine's own.
+- A component's `.pc` file is named after the component. `Component(pkg_config="freetype2", pkg_config_version="26.2.20", pkg_config_variables={...})` changes the name, the version and adds variables, for what upstream's users expect.
+- A build that would compile its install folder into a library is rejected. The recipe points such folders at the machine instead (`/etc`, `/usr/share`), as `glib` in silo-recipes and `fontconfig` in silo-recipes do.
 
 ### Libraries silo cannot build yet
 
@@ -126,7 +189,7 @@ def build(self):
     ConanInstall(self).install("dav1d/1.4.3#5e2459e132c77183bd16d23d12fd8f4a")
 ```
 
-It only describes MSVC to Conan so far, and it suits packages without dependencies of their own. `settings=` replaces entries of the profile for a package that refuses the real ones (see `recipes/libvpx`).
+It only describes MSVC to Conan so far, and it suits packages without dependencies of their own. `settings=` replaces entries of the profile for a package that refuses the real ones (see `libvpx` in silo-recipes).
 
 ## How a build flows
 
@@ -168,16 +231,19 @@ cli.build
 | `client/src/silo/git_snapshot.py` | Hash and copy a local folder through git, without touching its repo |
 | `client/src/silo/verifier.py` | Rejects a package that has its install prefix compiled in |
 | `client/src/silo/tool_resolver.py` | Build tools installed through uv |
+| `client/src/silo/registry.py` | `silo.config.toml` and looking a package up in its registries |
 | `client/src/silo/errors.py` | Errors the CLI prints without a traceback |
 | `client/src/silo/report.py` | What `silo build --report` writes |
 | `client/src/silo/platform/` | Everything OS specific, behind `PlatformBackend` |
 | `client/src/silo/tools/cmake/` | For recipes: `CMakeGenerator` (toolchain file), `CMakeDeps` (dependency configs), `CMakePresets`, `CMakeBuild` |
-| `client/src/silo/tools/conan/` | For recipes: `ConanInstall`, which gets a finished package from Conan when silo cannot drive its build. See `recipes/libvpx` |
+| `client/src/silo/tools/meson/` | For recipes: `MesonGenerator` (native file) and `MesonBuild` |
+| `client/src/silo/tools/pkgconfig/` | For recipes: `PkgConfigDeps`, a `.pc` file per dependency component |
+| `client/src/silo/tools/conan/` | For recipes: `ConanInstall`, which gets a finished package from Conan when silo cannot drive its build. See `libvpx` in silo-recipes |
 | `client/src/silo/cache.py` | The caches under `<SILO_HOME>/cache` and how to clear them |
-| `recipes/` | Recipes (`silopkg.py`) for third-party libraries: zlib, freetype, libpng, tinyxml2, msdfgen, opus, libyuv, libwebm, miniaudio, the Vulkan headers and loader, vk-bootstrap, and (through Conan) libvpx and dav1d. Also rwin and webmdx |
 | `examples/sdf/` | A local project that links msdfgen and its whole dependency chain |
 | `examples/vpx/` | A local project that links libvpx, which silo gets from Conan |
 | `examples/webm/` | A local project that links webmdx and, through it, five codec and container libraries |
+| `examples/decor/` | Linux only: links libdecor and opens a Wayland connection |
 | `examples/zapp/` | A local project: `src.local(".")`, a path dependency with an alias, a tool, presets and a `validate` hook |
 | `examples/greetgen/` | A code generator that zapp uses as a tool |
 | `client/tests/` | Unit tests |
@@ -186,9 +252,13 @@ To add a platform, implement `PlatformBackend` (`platform/base.py`) in its own f
 
 ## Not built yet
 
-- Dependencies by name (`zlib@1.3`). They need a registry, so only paths work: `self.dep("../zlib")`.
+- Version ranges, a lockfile and prebuilt packages. A dependency is an exact version, and everything is built from source.
 - `src.git(url, tag=...)` and version pins, which wait for the lockfile. `src.git(url, commit=..., submodules=...)` works.
 - Submodules in a local source.
-- The lockfile, publishing prebuilts, and Linux and macOS builds. `recipes/rwin` is Windows only until its Wayland dependencies have recipes.
+- macOS builds. Linux builds with gcc or clang, and has been run on Ubuntu with gcc only. Most recipes written on Windows have not been built there.
+- On Linux the system's `/usr/bin` is on the build's `PATH`, since the compiler needs it. A tool installed there (make, python3) can be used without being declared.
+- libdecor finds its plugins only through `LIBDECOR_PLUGIN_DIR`, which the program sets to the package's `lib/libdecor/plugins-1`.
+- A Python of the recipe's choosing. Meson and build scripts run on silo's own interpreter.
+- `rwin` in silo-recipes is Windows only. Its Wayland dependencies now have recipes, but it is not wired to them.
 - `ConanInstall` for compilers other than MSVC, and for packages with dependencies of their own.
 - A check that every library in a link uses the same C runtime. A mismatch shows up only when a consumer links.
