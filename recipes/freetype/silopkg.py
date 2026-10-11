@@ -1,5 +1,5 @@
 from silo import Component, Package, SiloPackage
-from silo.tools.cmake import CMakeBuild
+from silo.tools.cmake import CMakeBuild, CMakeDeps, CMakeGenerator
 
 
 class Freetype(SiloPackage):
@@ -17,6 +17,10 @@ class Freetype(SiloPackage):
         self.dep("../zlib")
         self.tool("cmake@4.3")
         self.tool("ninja@1.13")
+
+    def generate(self):
+        CMakeDeps(self).generate()
+        CMakeGenerator(self).generate()
 
     def build(self):
         cmake = CMakeBuild(self)
@@ -39,5 +43,6 @@ class Freetype(SiloPackage):
                     static_libs=["freetype"],
                     requires=["zlib"],
                 )
-            ]
+            ],
+            licenses=["LICENSE.TXT", "docs/FTL.TXT"],
         )

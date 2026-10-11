@@ -1,5 +1,5 @@
 from silo import Component, Options, Package, SiloPackage
-from silo.tools.cmake import CMakeBuild
+from silo.tools.cmake import CMakeBuild, CMakeGenerator
 
 
 class ZlibOptions(Options):
@@ -10,6 +10,7 @@ class Zlib(SiloPackage[ZlibOptions]):
     name = "zlib"
     version = "1.3.1"
     languages = ("c",)
+    supports_shared = True
 
     def source(self, src):
         src.fetch(
@@ -21,13 +22,21 @@ class Zlib(SiloPackage[ZlibOptions]):
         self.tool("cmake@4.3")
         self.tool("ninja@1.13")
 
+    def generate(self):
+        toolchain = CMakeGenerator(self)
+        toolchain.add_cache_bool("ZLIB_BUILD_EXAMPLES", False)
+        toolchain.generate()
+
     def build(self):
         cmake = CMakeBuild(self)
-        cmake.configure(ZLIB_BUILD_EXAMPLES=False)
+        cmake.configure()
         cmake.build()
         cmake.install()
 
     def package(self):
-        return Package(
-            components=[Component("zlib", headers=["include"], static_libs=["zlibstatic"])]
-        )
+        # zlib always builds both kinds, so the option only picks which one is packaged
+        if self.options.shared:
+            library = Component("zlib", headers=["include"], shared_libs=["zlib"])
+        else:
+            library = Component("zlib", headers=["include"], static_libs=["zlibstatic"])
+        return Package(components=[library], licenses=["LICENSE"])
