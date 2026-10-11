@@ -97,5 +97,10 @@ class WindowsBackend(PlatformBackend):
             return {}
         return {"CMAKE_MSVC_RUNTIME_LIBRARY": MSVC_RUNTIME}
 
+    def cmake_initial_cache(self, profile: Profile) -> dict[str, str]:
+        # A project that asks for a CMake older than 3.15 would otherwise ignore the runtime
+        # silo chose. cmake_minimum_required() reads this, before any toolchain file is.
+        return {"CMAKE_POLICY_DEFAULT_CMP0091": "NEW"}
+
     def meson_options(self, profile: Profile) -> dict[str, str | list[str]]:
         return {"b_vscrt": "md"}

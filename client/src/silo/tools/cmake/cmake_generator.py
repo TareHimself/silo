@@ -71,7 +71,11 @@ class CMakeGenerator[T: Options = Options]:
 
     def __init__(self, package: SiloPackage[T]) -> None:
         self.package: SiloPackage[T] = package
-        self._cache: dict[str, tuple[str, str]] = {}
+        profile = package.context.profile
+        early = backend_for(profile.settings.os).cmake_initial_cache(profile)
+        self._cache: dict[str, tuple[str, str]] = {
+            key: ("STRING", value) for key, value in early.items()
+        }
         self._system_packages = False
 
     def allow_system_packages(self):

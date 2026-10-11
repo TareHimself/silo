@@ -41,6 +41,10 @@ class PlatformBackend(ABC):
     def cmake_cache_entries(self, profile: Profile) -> dict[str, str]:
         return {}
 
+    def cmake_initial_cache(self, profile: Profile) -> dict[str, str]:
+        """Entries CMake must know before it reads the project's first line."""
+        return {}
+
     def meson_options(self, profile: Profile) -> dict[str, str | list[str]]:
         """Built-in Meson options every build on this system needs."""
         return {}

@@ -88,17 +88,21 @@ def test_cache_entries_go_into_a_file_cmake_reads_before_the_project(demo_packag
     assert 'set(ZLIB_BUILD_EXAMPLES "OFF" CACHE BOOL "" FORCE)' in cache
     assert 'set(FT_FLAVOUR "small" CACHE STRING "" FORCE)' in cache
     assert "ZLIB_BUILD_EXAMPLES" not in toolchain.read_text(encoding="utf-8")
-    assert generator.cache == {"ZLIB_BUILD_EXAMPLES": "OFF", "FT_FLAVOUR": "small"}
+    assert generator.cache == {
+        "CMAKE_POLICY_DEFAULT_CMP0091": "NEW",
+        "ZLIB_BUILD_EXAMPLES": "OFF",
+        "FT_FLAVOUR": "small",
+    }
     arguments = configure_arguments(package)
     assert arguments[arguments.index("-C") + 1] == str(cache_file)
 
 
-def test_no_cache_entries_means_no_cache_file(demo_package):
+def test_an_old_cmake_project_is_told_to_honour_the_runtime_on_windows(demo_package):
     package = demo_package()
     toolchain = CMakeGenerator(package).generate()
 
-    assert not toolchain.with_name("silo-cache.cmake").exists()
-    assert "-C" not in configure_arguments(package)
+    cache = toolchain.with_name("silo-cache.cmake").read_text(encoding="utf-8")
+    assert 'set(CMAKE_POLICY_DEFAULT_CMP0091 "NEW" CACHE STRING "" FORCE)' in cache
 
 
 @pytest.mark.parametrize(

@@ -130,12 +130,16 @@ def test_the_toolchain_generators_cache_entries_reach_every_preset(demo_package)
 
     base, preset = presets.document()["configurePresets"]
 
-    assert base["cacheVariables"] == {"MSDFGEN_USE_SKIA": "OFF"}
+    assert base["cacheVariables"] == {
+        "CMAKE_POLICY_DEFAULT_CMP0091": "NEW",
+        "MSDFGEN_USE_SKIA": "OFF",
+    }
     assert preset["cacheVariables"]["MSDFGEN_USE_SKIA"] == "ON"
 
 
-def test_the_hidden_preset_has_no_cache_block_without_entries(demo_package):
+def test_the_hidden_preset_carries_what_the_platform_needs_early(demo_package):
     package = demo_package()
     CMakeGenerator(package).generate()
 
-    assert "cacheVariables" not in presets_for(package).document()["configurePresets"][0]
+    base = presets_for(package).document()["configurePresets"][0]
+    assert base["cacheVariables"] == {"CMAKE_POLICY_DEFAULT_CMP0091": "NEW"}
