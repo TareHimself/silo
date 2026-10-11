@@ -1,7 +1,7 @@
 [project]
 name = "silo"
 version = "0.1.0"
-description = "Add your description here"
+description = "A C++ package manager that builds dependencies from source into a local store"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

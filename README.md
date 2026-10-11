@@ -1,6 +1,6 @@
 # silo
 
-A C++ package manager: builds dependencies from source in an isolated environment and keeps them in a local store. Design notes live on relay, in the `silo` project.
+A C++ package manager: builds dependencies from source in an isolated environment and keeps them in a local store.
 
 ## Use
 
