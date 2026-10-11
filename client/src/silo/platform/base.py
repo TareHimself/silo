@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from silo.build_profile import CompilerProfile, Profile
-from silo.enums import Architecture
+from silo.enums import Architecture, RuntimeLibrary
 
 
 class PlatformBackend(ABC):
@@ -14,6 +14,10 @@ class PlatformBackend(ABC):
     # The variable the system searches for shared libraries when a program starts
     runtime_library_variable: str
     executable_suffixes: tuple[str, ...]
+    # Whether a static library must be built so it can go inside a shared one
+    position_independent: bool = False
+    # Folders a program or library searches for the shared libraries shipped with it
+    runtime_search: tuple[str, ...] = ()
 
     @abstractmethod
     def detect_compiler(self, arch: Architecture) -> CompilerProfile: ...
@@ -38,13 +42,6 @@ class PlatformBackend(ABC):
     def hardening_defines(self, profile: Profile) -> list[str]:
         """Preprocessor defines that turn on the C++ standard library's hardened mode."""
 
-    def cmake_cache_entries(self, profile: Profile) -> dict[str, str]:
-        return {}
-
-    def cmake_initial_cache(self, profile: Profile) -> dict[str, str]:
-        """Entries CMake must know before it reads the project's first line."""
-        return {}
-
-    def meson_options(self, profile: Profile) -> dict[str, str | list[str]]:
-        """Built-in Meson options every build on this system needs."""
-        return {}
+    def runtime_library(self, profile: Profile) -> RuntimeLibrary | None:
+        """The runtime every build links, or None where the compiler has only one."""
+        return None

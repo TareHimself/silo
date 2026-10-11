@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from silo.build_profile import Profile
-from silo.enums import Architecture, BuildMode, Compiler, Platform
+from silo.enums import Architecture, BuildMode, Compiler, Platform, RuntimeLibrary
 from silo.errors import SiloError
 from silo.paths import conan_dir
+from silo.platform import backend_for
 from silo.silo_package import SiloPackage
 
 PROFILE_FILE = "conan-profile"
@@ -19,6 +20,9 @@ CONAN_ARCH = {
     Architecture.ARM64: "armv8",
     Architecture.ARM: "armv7",
 }
+
+# compiler.runtime and compiler.runtime_type
+CONAN_RUNTIME = {RuntimeLibrary.DynamicRelease: ("dynamic", "Release")}
 
 OptionValue = str | bool | int
 
@@ -33,14 +37,15 @@ def conan_settings(profile: Profile, build_type: BuildMode) -> dict[str, str]:
     """silo's profile in Conan's words, with the release runtime silo uses for every build."""
     if profile.compiler.kind is not Compiler.MSVC:
         raise SiloError(f"ConanInstall cannot describe {profile.compiler.kind.value} to Conan yet")
+    runtime, runtime_type = CONAN_RUNTIME[backend_for(profile.settings.os).runtime_library(profile)]
     return {
         "os": CONAN_OS[profile.settings.os],
         "arch": CONAN_ARCH[profile.settings.arch],
         "build_type": "Debug" if build_type is BuildMode.Debug else "Release",
         "compiler": "msvc",
         "compiler.version": _msvc_version(profile.compiler.version),
-        "compiler.runtime": "dynamic",
-        "compiler.runtime_type": "Release",
+        "compiler.runtime": runtime,
+        "compiler.runtime_type": runtime_type,
         "compiler.cppstd": str(profile.settings.cppstd),
     }
 

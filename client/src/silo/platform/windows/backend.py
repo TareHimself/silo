@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 
 from silo.build_profile import CompilerProfile, Profile
-from silo.enums import Architecture, Compiler
+from silo.enums import Architecture, Compiler, RuntimeLibrary
 from silo.platform.base import PlatformBackend
 from silo.platform.windows.msvc import capture_vcvars, find_visual_studio
 
@@ -12,9 +12,6 @@ MSVC_TARGETS = {
     Architecture.X86: "i686-pc-windows-msvc",
     Architecture.ARM64: "aarch64-pc-windows-msvc",
 }
-
-# Always the release runtime (/MD), so debug and release objects link together as on other platforms
-MSVC_RUNTIME = "MultiThreadedDLL"
 
 # vcvars puts Visual Studio's own cmake and ninja on PATH, which would satisfy an undeclared tool
 VS_BUNDLED_TOOL_DIRS = (r"\CommonExtensions\Microsoft\CMake",)
@@ -92,15 +89,9 @@ class WindowsBackend(PlatformBackend):
             return []
         return ["_MSVC_STL_HARDENING=1"]
 
-    def cmake_cache_entries(self, profile: Profile) -> dict[str, str]:
+    def runtime_library(self, profile: Profile) -> RuntimeLibrary | None:
         if profile.compiler.kind is not Compiler.MSVC:
-            return {}
-        return {"CMAKE_MSVC_RUNTIME_LIBRARY": MSVC_RUNTIME}
-
-    def cmake_initial_cache(self, profile: Profile) -> dict[str, str]:
-        # A project that asks for a CMake older than 3.15 would otherwise ignore the runtime
-        # silo chose. cmake_minimum_required() reads this, before any toolchain file is.
-        return {"CMAKE_POLICY_DEFAULT_CMP0091": "NEW"}
-
-    def meson_options(self, profile: Profile) -> dict[str, str | list[str]]:
-        return {"b_vscrt": "md"}
+            return None
+        # The release one in debug builds too, so debug and release objects link together
+        # as they do on other platforms
+        return RuntimeLibrary.DynamicRelease

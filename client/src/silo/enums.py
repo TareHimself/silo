@@ -13,6 +13,12 @@ class Compiler(Enum):
     MSVC = "msvc"
 
 
+class RuntimeLibrary(Enum):
+    """Which C and C++ runtime a compiler links, where it offers a choice."""
+
+    DynamicRelease = "dynamic_release"
+
+
 class Platform(Enum):
     Windows = "windows"
     Linux = "linux"
