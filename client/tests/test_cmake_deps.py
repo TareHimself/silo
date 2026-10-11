@@ -245,3 +245,28 @@ def test_a_library_keeps_its_name_when_another_components_program_shares_it():
     assert "add_library(msdfgen::msdfgen INTERFACE IMPORTED)" in config
     assert "add_executable(msdfgen::msdfgen-run IMPORTED)" in config
     assert "add_executable(msdfgen::msdfgen IMPORTED)" not in config
+
+
+def shared_package(root: Path, name: str, system_runtime: bool = False) -> Path:
+    package_dir = root / "store" / f"{name}-1"
+    (package_dir / "silo").mkdir(parents=True)
+    (package_dir / "bin").mkdir()
+    (package_dir / "bin" / f"{name}.dll").write_text("library", encoding="utf-8")
+    manifest = shared_manifest([{"type": "shared_lib", "path": f"bin/{name}.dll"}])
+    manifest |= {"name": name, "system_runtime": system_runtime}
+    manifest["components"] = {name: manifest["components"]["zlib"]}
+    (package_dir / "silo" / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return package_dir
+
+
+def test_a_program_is_told_which_shared_libraries_to_ship(tmp_path):
+    packages = {
+        "webmdx": shared_package(tmp_path, "webmdx"),
+        "vulkan": shared_package(tmp_path, "vulkan", system_runtime=True),
+    }
+
+    write_dependency_configs(packages, tmp_path / "prefix")
+
+    runtime = (tmp_path / "prefix" / "silo-runtime.cmake").read_text(encoding="utf-8")
+    assert f"{(packages['webmdx'] / 'bin' / 'webmdx.dll').as_posix()}" in runtime
+    assert "vulkan.dll" not in runtime

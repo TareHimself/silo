@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 
@@ -180,3 +181,20 @@ def test_an_inferred_program_keeps_the_files_installed_beside_it(tmp_path):
     package = Package.infer(install, "demo", WindowsBackend())
 
     assert package.components[0].content == ["bin"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="needs symbolic links")
+def test_a_shared_library_keeps_its_versioned_names(tmp_path):
+    install = make_install_tree(tmp_path / "install", ["include/z.h", "lib/libz.so.1.3.1"])
+    (install / "lib" / "libz.so.1").symlink_to("libz.so.1.3.1")
+    (install / "lib" / "libz.so").symlink_to("libz.so.1")
+    package = Package(components=[Component("zlib", shared_libs=["z"])])
+
+    write_package(
+        package, install, tmp_path / "store" / "zlib-1", "zlib", "1.3.1", "1", LinuxBackend()
+    )
+
+    library = tmp_path / "store" / "zlib-1" / "lib"
+    assert not (library / "libz.so").is_symlink()
+    assert (library / "libz.so.1").resolve() == (library / "libz.so").resolve()
+    assert (library / "libz.so.1.3.1").resolve() == (library / "libz.so").resolve()

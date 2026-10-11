@@ -17,10 +17,16 @@ class Settings(BaseModel):
 class CompilerProfile(BaseModel):
     kind: Compiler
     executable: Path
+    # The C++ compiler, where it is a different program from the C one
+    cxx_executable: Path | None = None
     version: str
     target: str
     install_path: Path | None = None
     sdk: str | None = None
+
+    @property
+    def cxx(self) -> Path:
+        return self.cxx_executable or self.executable
 
 
 class Profile(BaseModel):

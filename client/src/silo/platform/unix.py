@@ -1,12 +1,15 @@
+import os
 from pathlib import Path
 
-from silo.build_profile import CompilerProfile, Profile
-from silo.enums import Architecture
+from silo.build_profile import Profile
 from silo.platform.base import PlatformBackend
+
+# The compiler needs the assembler, the linker and a shell, which live here
+SYSTEM_DIRS = ("/usr/bin", "/bin")
 
 
 class UnixBackend(PlatformBackend):
-    """File naming shared by Linux and macOS. Detection and build envs are not written yet."""
+    """What Linux and macOS share: file naming and a build environment made from scratch."""
 
     name: str
     shared_lib_suffix = ".so"
@@ -19,11 +22,17 @@ class UnixBackend(PlatformBackend):
     static_lib_suffixes = (".a",)
     executable_suffixes = ("",)
 
-    def detect_compiler(self, arch: Architecture) -> CompilerProfile:
-        raise NotImplementedError(f"Compiler detection is not implemented for {self.name}")
-
     def build_env(self, profile: Profile, tool_dirs: list[Path], tmp: Path) -> dict[str, str]:
-        raise NotImplementedError(f"Build environments are not implemented for {self.name}")
+        compiler = profile.compiler
+        searched = [*tool_dirs, compiler.executable.parent, compiler.cxx.parent, *SYSTEM_DIRS]
+        return {
+            "PATH": os.pathsep.join(dict.fromkeys(map(str, searched))),
+            "CC": str(compiler.executable),
+            "CXX": str(compiler.cxx),
+            "TMPDIR": str(tmp),
+            "HOME": str(tmp),
+            "LANG": "C.UTF-8",
+        }
 
     def static_lib_candidates(self, name: str) -> list[str]:
         return [f"lib/lib{name}.a"]

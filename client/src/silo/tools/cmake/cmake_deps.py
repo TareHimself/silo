@@ -11,7 +11,7 @@ from typing import Any
 
 from silo.errors import SiloError
 from silo.silo_package import SiloPackage
-from silo.tools.cmake.cmake_generator import CONFIGS_DIR
+from silo.tools.cmake.cmake_generator import CONFIGS_DIR, RUNTIME_FILE
 
 
 def _package_of(reference: str | dict) -> tuple[str, str]:
@@ -221,6 +221,29 @@ def _check_aliases(aliases: dict[str, str], manifests: dict[str, dict]) -> None:
             )
 
 
+def runtime_libraries(packages: dict[str, Path], manifests: dict[str, dict]) -> list[str]:
+    """Every shared library file a program built on these packages has to ship with it.
+
+    On Linux that includes the versioned names, which are what a program asks for.
+    """
+    files: list[Path] = []
+    for name, package_dir in packages.items():
+        if manifests[name].get("system_runtime"):
+            continue
+        for component in manifests[name]["components"].values():
+            for artifact in component["artifacts"]:
+                if artifact["type"] != "shared_lib":
+                    continue
+                library = package_dir / artifact["path"]
+                names = [
+                    sibling
+                    for sibling in sorted(library.parent.iterdir())
+                    if sibling.is_symlink() and sibling.resolve() == library.resolve()
+                ]
+                files += [library, *names]
+    return [file.as_posix() for file in files]
+
+
 def write_dependency_configs(
     packages: dict[str, Path],
     prefix_dir: Path,
@@ -233,12 +256,18 @@ def write_dependency_configs(
     find_package(zlib), find_package(ZLIB) or any other casing. An alias such as
     "PNG::PNG" for "libpng::libpng" also makes the package findable as PNG. A package in
     `tool_packages` only offers its executables, unless it is also in `packages`.
+    The toolchain file loads one more file from here, which sets SILO_RUNTIME_LIBRARIES.
     """
     manifests = {
         name: json.loads((package_dir / "silo" / "package.json").read_text(encoding="utf-8"))
         for name, package_dir in ((tool_packages or {}) | packages).items()
     }
     _check_aliases(aliases or {}, {name: manifests[name] for name in packages})
+    prefix_dir.mkdir(parents=True, exist_ok=True)
+    shipped = ";".join(runtime_libraries(packages, manifests))
+    (prefix_dir / RUNTIME_FILE).write_text(
+        f'set(SILO_RUNTIME_LIBRARIES "{shipped}")\n', encoding="utf-8"
+    )
     for name, manifest in manifests.items():
         package_dir = ((tool_packages or {}) | packages)[name]
         own_aliases = {

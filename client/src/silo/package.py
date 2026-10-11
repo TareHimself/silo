@@ -42,6 +42,12 @@ class Component:
     system_libs: list[str] = field(default_factory=list)
     build_modules: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    # The name of this component's .pc file, where upstream's differs from the component's
+    pkg_config: str | None = None
+    # freetype 2.13.3 calls itself 26.2.20 there, and its users check that number
+    pkg_config_version: str | None = None
+    # Extra variables for that file, such as {"pkgdatadir": "${prefix}/share/wayland-protocols"}
+    pkg_config_variables: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -50,6 +56,10 @@ class Package:
     # Optional license files. Unlike everything else here, these are paths in the source
     # tree, because builds rarely install them. They land in the package's licenses/ folder.
     licenses: list[str] = field(default_factory=list)
+    # True for a library that must match the machine it runs on, such as a graphics
+    # loader. It is built and linked as usual, but a program is not handed its files
+    # to ship and finds the machine's own copy when it starts.
+    system_runtime: bool = False
 
     @classmethod
     def infer(cls, install_dir: Path, name: str, backend: PlatformBackend) -> "Package":
@@ -228,6 +238,11 @@ def _component_manifest(
         "defines": list(component.defines),
         "system_libs": list(component.system_libs),
         "env": component.env,
+        "pkg_config": {
+            "name": component.pkg_config or component.name,
+            "version": component.pkg_config_version,
+            "variables": component.pkg_config_variables,
+        },
     }
 
 
@@ -235,9 +250,15 @@ def _copy_into(package_dir: Path, install_dir: Path, relative: str) -> None:
     source, target = install_dir / relative, package_dir / relative
     target.parent.mkdir(parents=True, exist_ok=True)
     if source.is_dir():
-        shutil.copytree(source, target, dirs_exist_ok=True)
-    else:
-        shutil.copy2(source, target)
+        shutil.copytree(source, target, symlinks=True, dirs_exist_ok=True)
+        return
+    shutil.copy2(source, target)
+    # libz.so, libz.so.1 and libz.so.1.3.1 are one file under three names. Programs ask
+    # for the versioned ones when they start.
+    for sibling in source.parent.iterdir():
+        alias = target.with_name(sibling.name)
+        if sibling.resolve() == source.resolve() and not alias.exists():
+            alias.symlink_to(target.name)
 
 
 def _file_hashes(package_dir: Path) -> dict[str, str]:
@@ -315,6 +336,7 @@ def write_package(
         "version": version,
         "id": build_id,
         "license_files": license_files,
+        "system_runtime": package.system_runtime,
         "components": components,
         "files": _file_hashes(staging),
     }

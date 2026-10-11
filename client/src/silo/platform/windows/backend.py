@@ -96,3 +96,6 @@ class WindowsBackend(PlatformBackend):
         if profile.compiler.kind is not Compiler.MSVC:
             return {}
         return {"CMAKE_MSVC_RUNTIME_LIBRARY": MSVC_RUNTIME}
+
+    def meson_options(self, profile: Profile) -> dict[str, str | list[str]]:
+        return {"b_vscrt": "md"}

@@ -40,3 +40,7 @@ class PlatformBackend(ABC):
 
     def cmake_cache_entries(self, profile: Profile) -> dict[str, str]:
         return {}
+
+    def meson_options(self, profile: Profile) -> dict[str, str | list[str]]:
+        """Built-in Meson options every build on this system needs."""
+        return {}

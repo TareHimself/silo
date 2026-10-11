@@ -272,7 +272,7 @@ def stored_package(name: str, artifacts: list[dict]) -> Path:
 def test_the_environment_finds_tool_programs_and_shared_libraries(
     load_demo_recipe, windows_profile, tmp_path, monkeypatch
 ):
-    monkeypatch.setenv("PATH", "C:/system")
+    monkeypatch.setenv("PATH", "/system")
     protoc = stored_package("protoc", [{"type": "executable", "path": "bin/protoc.exe"}])
     zlib = stored_package("zlib", [{"type": "shared_lib", "path": "bin/zlib.dll"}])
     abseil = stored_package("abseil", [{"type": "shared_lib", "path": "lib/abseil.dll"}])
@@ -283,7 +283,7 @@ def test_the_environment_finds_tool_programs_and_shared_libraries(
     env = build_environment(load_demo_recipe(""), windows_profile, inputs, tmp_path)
 
     searched = env["PATH"].split(os.pathsep)
-    assert searched == [str(zlib / "bin"), str(abseil / "lib"), "C:/system"]
+    assert searched == [str(zlib / "bin"), str(abseil / "lib"), "/system"]
     assert FakeBackend.tool_dirs == [protoc / "bin"]
 
 
