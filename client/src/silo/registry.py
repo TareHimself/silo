@@ -8,6 +8,7 @@ from silo.cache import remove_tree
 from silo.errors import ResolutionError, SiloError
 from silo.git_snapshot import fetch_commit
 from silo.paths import registries_dir
+from silo.versions import matches_prefix, version_key
 
 CONFIG_FILE = "silo.config.toml"
 RECIPES_DIR = "recipes"
@@ -176,12 +177,22 @@ class RecipeLookup:
                 return FetchedFrom(checkout.git, checkout.commit, checkout.root)
         return None
 
-    def _in_registries(self, name: str, version: str) -> Path | list[str] | None:
-        """The recipe folder, or the versions the first registry holding the package has."""
+    def _in_registries(
+        self, name: str, version: str | None, newest_matching: bool
+    ) -> Path | list[str] | None:
+        """The recipe folder, or the versions the first registry holding the package has.
+
+        With `newest_matching`, "4.3" stands for the highest 4.3.x and no version for the
+        highest there is.
+        """
         for registry in self.registries:
             versions = registry.versions(name)
-            if version in versions:
-                return registry.root / RECIPES_DIR / name / version
+            if newest_matching:
+                matching = [found for found in versions if matches_prefix(found, version)]
+            else:
+                matching = [found for found in versions if found == version]
+            if matching:
+                return registry.root / RECIPES_DIR / name / max(matching, key=version_key)
             if versions:
                 # The first registry that knows the name decides, so a later one cannot shadow it
                 return versions
@@ -218,11 +229,13 @@ class RecipeLookup:
         git: str | None = None,
         commit: str | None = None,
         subdir: str = ".",
+        newest_matching: bool = False,
     ) -> Path:
         """The folder of the recipe for `name`.
 
         The project's [package.<name>] entry wins. Then the git location the asking recipe
-        gave, if it gave one. Then the registries.
+        gave, if it gave one. Then the registries, where `newest_matching` lets a version
+        such as "4.3" stand for the highest 4.3.x.
         """
         if name in self.packages:
             recipe_dir = self.packages[name].recipe_dir
@@ -234,25 +247,25 @@ class RecipeLookup:
             return recipe_dir
         if git and commit:
             return self._located_by_recipe(name, git, commit, subdir)
-        if not version:
+        if not version and not newest_matching:
             raise ResolutionError(
                 f"{wanted_by} depends on '{name}' without a version. Write \"{name}@<version>\"."
             )
+        wanted = f"{name}@{version}" if version else name
         if not self.registries:
             raise ResolutionError(
-                f"{wanted_by} depends on '{name}@{version}', but no {CONFIG_FILE} with a "
+                f"{wanted_by} depends on '{wanted}', but no {CONFIG_FILE} with a "
                 f"[[registry]] or a [package.{name}] was found in the project's folder or above it."
             )
-        found = self._in_registries(name, version)
+        found = self._in_registries(name, version, newest_matching)
         if isinstance(found, Path):
             return self._followed(found, name)
         if found:
             raise ResolutionError(
-                f"{wanted_by} depends on '{name}@{version}', but the registry only has "
+                f"{wanted_by} depends on '{wanted}', but the registry only has "
                 f"{name} {', '.join(found)}."
             )
         searched = ", ".join(registry.name for registry in self.registries)
         raise ResolutionError(
-            f"{wanted_by} depends on '{name}@{version}', which no registry has "
-            f"(searched {searched})."
+            f"{wanted_by} depends on '{wanted}', which no registry has (searched {searched})."
         )

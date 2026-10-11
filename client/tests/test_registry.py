@@ -62,14 +62,44 @@ def test_a_named_dependency_comes_from_the_registry(project, tmp_path):
 
 def test_a_tool_can_be_named_too(project, tmp_path):
     publish(tmp_path / "registry", "protoc", "30.0")
-    app = project(
-        'name = "local"\npath = "../registry"',
-        deps='self.tool("protoc@30.0"); self.tool("cmake@4.3")',
-    )
+    app = project('name = "local"\npath = "../registry"', deps='self.tool("protoc@30.0")')
 
     graph = resolve(app, BuildMode.Release)
 
     assert graph.nodes["app"].tool_names == ["protoc"]
+
+
+def tool_versions(app: Path) -> list[str]:
+    tools = resolve(app, BuildMode.Release).nodes["app"].tools
+    return [tool.nodes[tool.root].version for tool in tools]
+
+
+def test_a_tools_version_stands_for_the_newest_one_it_begins(project, tmp_path):
+    for version in ("4.2.5", "4.3.1", "4.3.10", "4.30.0", "5.0.0"):
+        publish(tmp_path / "registry", "cmake", version)
+    wanted = ("cmake@4.3", "cmake@4", "cmake@4.2.5", "cmake")
+    deps = "; ".join(f'self.tool("{spec}")' for spec in wanted)
+    app = project('name = "local"\npath = "../registry"', deps=deps)
+
+    assert tool_versions(app) == ["4.3.10", "4.30.0", "4.2.5", "5.0.0"]
+
+
+def test_a_tool_version_nothing_begins_with_lists_the_ones_there_are(project, tmp_path):
+    publish(tmp_path / "registry", "cmake", "4.3.1")
+    app = project('name = "local"\npath = "../registry"', deps='self.tool("cmake@3")')
+
+    with pytest.raises(
+        ResolutionError, match=r"'cmake@3', but the registry only has cmake 4\.3\.1"
+    ):
+        resolve(app, BuildMode.Release)
+
+
+def test_a_library_is_the_exact_version_asked_for(project, tmp_path):
+    publish(tmp_path / "registry", "zlib", "1.3.1")
+    app = project('name = "local"\npath = "../registry"', deps='self.dep("zlib@1.3")')
+
+    with pytest.raises(ResolutionError, match=r"only has zlib 1\.3\.1"):
+        resolve(app, BuildMode.Release)
 
 
 def test_a_missing_version_lists_the_ones_there_are(project, tmp_path):

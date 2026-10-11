@@ -82,7 +82,8 @@ def print_graph(resolved: Graph, indent: str = "") -> None:
         for dependency in node.dependency_names:
             print(f"{indent}  needs {dependency}")
         for tool in node.tools:
-            print(f"{indent}  runs {tool.root}, built from:")
+            passed_on = " and passes it on" if tool.transitive else ""
+            print(f"{indent}  runs {tool.root}{passed_on}, built from:")
             print_graph(tool, indent + "    ")
 
 

@@ -12,8 +12,8 @@ from silo.options import Options
 from silo.registry import RecipeLookup
 from silo.silo_package import SiloPackage
 from silo.source import SourceSpec
-from silo.tool_resolver import is_fetched_tool
 from silo.utils import get_package_file_path, load_package_cls
+from silo.versions import matches_prefix
 
 OptionValues = dict[str, OptionValue]
 
@@ -46,6 +46,8 @@ class Node:
 class Graph:
     root: str
     nodes: dict[str, Node]
+    # For a tool's graph: declared with transitive=True, so its user's users can run it too
+    transitive: bool = False
 
     def build_order(self) -> list[Node]:
         """Every node after all of its dependencies."""
@@ -95,8 +97,17 @@ class _Pass:
     decisions: _Decisions
 
 
-def _recipe_dir_of(dependency: Dependency, declared_by: SiloPackage, lookup: RecipeLookup) -> Path:
-    """Where a dependency's recipe is: the path the recipe gave, or a registry's folder."""
+def _recipe_dir_of(
+    dependency: Dependency,
+    declared_by: SiloPackage,
+    lookup: RecipeLookup,
+    newest_matching: bool = False,
+) -> Path:
+    """Where a dependency's recipe is: the path the recipe gave, or a registry's folder.
+
+    A library is the exact version asked for. With `newest_matching`, which is for tools,
+    "cmake@4.3" is the highest 4.3.x there is.
+    """
     if dependency.path is not None:
         return (declared_by.recipe_dir / dependency.path).resolve()
     assert dependency.name is not None
@@ -107,13 +118,17 @@ def _recipe_dir_of(dependency: Dependency, declared_by: SiloPackage, lookup: Rec
         dependency.git,
         dependency.commit,
         dependency.subdir,
+        newest_matching,
     )
     found = load_package_cls(recipe_dir)
-    wanted_version = dependency.version or found.version
-    if (found.name, found.version) != (dependency.name, wanted_version):
+    if newest_matching:
+        right_version = matches_prefix(found.version, dependency.version)
+    else:
+        right_version = dependency.version in (None, found.version)
+    if found.name != dependency.name or not right_version:
         raise ResolutionError(
-            f"{recipe_dir} should hold {dependency.name} {wanted_version}, but its recipe "
-            f"is {found.name} {found.version}."
+            f"{recipe_dir} should hold {dependency.name} {dependency.version or ''}, but its "
+            f"recipe is {found.name} {found.version}."
         )
     return recipe_dir.resolve()
 
@@ -268,23 +283,21 @@ def _resolve_tools(
     """
     graphs = []
     for tool in package._declared_tools:
-        if is_fetched_tool(tool):
-            continue
-        tool_dir = _recipe_dir_of(tool, package, lookup)
+        tool_dir = _recipe_dir_of(tool, package, lookup, newest_matching=True)
         if tool_dir in tool_chain:
             cycle = [*tool_chain[tool_chain.index(tool_dir) :], tool_dir]
             names = " -> ".join(folder.name for folder in cycle)
             raise ResolutionError(f"Tool cycle: {names}. A tool cannot need itself to be built.")
-        graphs.append(
-            resolve(
-                tool_dir,
-                BuildMode.Release,
-                {"": tool.options} if tool.options else None,
-                tool_chain=(*tool_chain, tool_dir),
-                profile=package._profile,
-                lookup=lookup,
-            )
+        graph = resolve(
+            tool_dir,
+            BuildMode.Release,
+            {"": tool.options} if tool.options else None,
+            tool_chain=(*tool_chain, tool_dir),
+            profile=package._profile,
+            lookup=lookup,
         )
+        graph.transitive = tool.transitive
+        graphs.append(graph)
     return graphs
 
 

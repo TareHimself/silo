@@ -165,11 +165,39 @@ Some libraries must match the machine they run on, not the one they were built o
 A recipe declares the programs its build runs in `deps()`:
 
 ```python
-self.tool("cmake@4.3")  # fetched ready-made from PyPI: cmake, ninja, meson, pkgconf, conan
-self.tool("../greetgen")  # another recipe, built first. By name too: "wayland@1.22.0"
+self.tool("cmake@4.3")  # a recipe from a registry, built first
+self.tool("../greetgen")  # or a recipe given by path
 ```
 
+Every tool is a recipe. cmake, ninja, meson, pkgconf and conan are too: their recipes in silo-recipes take the finished program from PyPI with `PyPIInstall`, which is why silo needs `uv` on the machine and nothing else.
+
+A tool's version is the newest one that begins the way it is written, because a tool is run and not linked:
+
+| Written | Means |
+|---|---|
+| `cmake@4.3.4` | exactly 4.3.4 |
+| `cmake@4.3` | the highest 4.3.x the registry has |
+| `cmake@4` | the highest 4.x |
+| `cmake` | the highest there is |
+
+The version that was picked is part of the build id. A library named with `self.dep` is always the exact version written.
+
 A tool recipe's executables are put on the build's `PATH` and become CMake targets named `<package>::<program>`, so `find_package(greetgen)` gives `greetgen::greetgen` (see `examples/zapp/CMakeLists.txt`). Folders holding the shared libraries of dependencies and tools are on the search path too, so tests and tools start. `silo run -- <command>` runs anything in that same environment.
+
+### A tool that runs another tool
+
+A build that runs CMake also runs Ninja, because CMake starts it. Whatever a tool runs comes with the tool, so the recipe names only the tool it calls itself.
+
+A tool's recipe says so with `transitive=True`:
+
+```python
+class Bison(SiloPackage):
+    def deps(self):
+        self.tool("m4@1.4.19", transitive=True)  # bison starts m4 every time it runs
+        self.tool("gperf@3.1")                   # only needed to build bison
+```
+
+A recipe with `self.tool("bison@3.8.2")` then has `bison` and `m4` on its `PATH`. The cmake and meson recipes pass on ninja the same way, so `self.tool("cmake@4.3")` is enough to build with CMake. This follows chains of any length, and `silo graph` marks such a tool with "and passes it on". Only the tool the recipe named becomes a CMake target.
 
 Each tool recipe is a graph of its own, separate from what its user links:
 
@@ -210,7 +238,6 @@ A recipe is a `silopkg.py` holding a class that extends `SiloPackage`. `tinyxml2
 def deps(self):
     self.dep("libffi@3.4.6")
     self.tool("meson@1")
-    self.tool("ninja@1.13")
     self.tool("pkgconf@3")
 
 def generate(self):
@@ -261,7 +288,7 @@ cli.build
          build_id.make_build_id        recipe files + source + profile + build type + options
                                        + the build ids of its dependencies
          store hit?  -> next package
-         tool_resolver.resolve_tool    cmake, ninja and conan from PyPI, through uv
+         its tools, built the same way  each a graph of its own, cmake and ninja included
          platform backend .build_env   a clean environment, nothing inherited from the shell
          builder.prepare_source        fetched: download, check sha256, unpack
                                        local: check out a git snapshot of the folder as it is now
@@ -288,12 +315,12 @@ cli.build
 | `client/src/silo/source.py` | Source declaration, download and patch helpers |
 | `client/src/silo/git_snapshot.py` | Hash and copy a local folder through git, without touching its repo |
 | `client/src/silo/verifier.py` | Rejects a package that has its install prefix compiled in |
-| `client/src/silo/tool_resolver.py` | Build tools installed through uv |
 | `client/src/silo/registry.py` | `silo.config.toml`: registries, packages taken from a folder or a commit, and the lookup |
 | `client/src/silo/errors.py` | Errors the CLI prints without a traceback |
 | `client/src/silo/report.py` | What `silo build --report` writes |
 | `client/src/silo/platform/` | Everything OS specific, behind `PlatformBackend` |
 | `client/src/silo/tools/cmake/` | For recipes: `CMakeGenerator` (toolchain file), `CMakeDeps` (dependency configs), `CMakePresets`, `CMakeBuild` |
+| `client/src/silo/tools/pypi/` | For recipes: `PyPIInstall`, which takes a finished program from PyPI. See `cmake` in silo-recipes |
 | `client/src/silo/tools/meson/` | For recipes: `MesonGenerator` (native file) and `MesonBuild` |
 | `client/src/silo/tools/pkgconfig/` | For recipes: `PkgConfigDeps`, a `.pc` file per dependency component |
 | `client/src/silo/tools/conan/` | For recipes: `ConanInstall`, which gets a finished package from Conan when silo cannot drive its build. See `libvpx` in silo-recipes |

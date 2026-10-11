@@ -228,7 +228,7 @@ def write_recipe(root, name: str, deps: str = "pass"):
 def test_a_tool_is_a_graph_of_its_own_and_is_not_linked(tmp_path):
     write_recipe(tmp_path, "zlib")
     write_recipe(tmp_path, "protoc", 'self.dep("../zlib")')
-    write_recipe(tmp_path, "app", 'self.tool("../protoc")\n        self.tool("cmake@4.3")')
+    write_recipe(tmp_path, "app", 'self.tool("../protoc")')
 
     graph = resolve(tmp_path / "app", BuildMode.Release)
 
@@ -236,6 +236,20 @@ def test_a_tool_is_a_graph_of_its_own_and_is_not_linked(tmp_path):
     assert graph.nodes["app"].tool_names == ["protoc"]
     tool = graph.nodes["app"].tools[0]
     assert [node.name for node in tool.build_order()] == ["zlib", "protoc"]
+
+
+def test_a_tool_graph_knows_it_was_declared_transitive(tmp_path):
+    write_recipe(tmp_path, "m4")
+    write_recipe(tmp_path, "gperf")
+    recipe = 'self.tool("../m4", transitive=True)\n        self.tool("../gperf")'
+    write_recipe(tmp_path, "bison", recipe)
+
+    graph = resolve(tmp_path / "bison", BuildMode.Release)
+
+    assert [(tool.root, tool.transitive) for tool in graph.nodes["bison"].tools] == [
+        ("m4", True),
+        ("gperf", False),
+    ]
 
 
 def test_a_tool_recipe_can_be_given_options(tmp_path):

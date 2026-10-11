@@ -56,6 +56,9 @@ class Demo(SiloPackage):
 class FakeBackend:
     runtime_library_variable = "PATH"
 
+    def executable_candidates(self, name):
+        return []
+
     def build_env(self, profile, tool_dirs, tmp):
         FakeBackend.tool_dirs = tool_dirs
         return dict(os.environ) | {"TEMP": str(tmp)}
@@ -285,6 +288,55 @@ def test_the_environment_finds_tool_programs_and_shared_libraries(
     searched = env["PATH"].split(os.pathsep)
     assert searched == [str(zlib / "bin"), str(abseil / "lib"), "/system"]
     assert FakeBackend.tool_dirs == [protoc / "bin"]
+
+
+PROGRAM_RECIPE = """\
+from silo import Component, Package, SiloPackage
+
+
+class Program(SiloPackage):
+    name = "{name}"
+    version = "1.0"
+
+    def source(self, src):
+        src.local(".")
+
+    def deps(self):
+        {tools}
+
+    def build(self):
+        program = self.install_dir / "bin" / "{name}.exe"
+        program.parent.mkdir(parents=True)
+        program.write_text("")
+
+    def package(self):
+        return Package(components=[Component("{name}", executables=["bin/{name}.exe"])])
+"""
+
+
+@pytest.fixture
+def program(git_repo):
+    def make(name: str, tools: str = "pass") -> Path:
+        write(git_repo / name / "silopkg.py", PROGRAM_RECIPE.format(name=name, tools=tools))
+        return git_repo / name
+
+    return make
+
+
+def tool_names() -> list[str]:
+    return [path.parent.name.split("-")[0] for path in FakeBackend.tool_dirs]
+
+
+def test_a_transitive_tool_reaches_whoever_uses_its_declarer_as_a_tool(program, windows_profile):
+    program("m4")
+    program("helper")
+    program("bison", 'self.tool("../m4", transitive=True); self.tool("../helper")')
+    program("yacc", 'self.tool("../bison", transitive=True)')
+    app = program("app", 'self.tool("../yacc")')
+
+    sync_graph(app, windows_profile, [BuildMode.Release])
+
+    assert tool_names() == ["yacc", "bison", "m4"]
 
 
 def test_run_command_runs_in_the_environment_and_returns_the_exit_code(

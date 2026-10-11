@@ -14,7 +14,6 @@ class Vpx(SiloPackage):
     def deps(self):
         self.dep("libvpx@1.14.1")
         self.tool("cmake@4.3")
-        self.tool("ninja@1.13")
 
     def generate(self):
         CMakeDeps(self).generate()

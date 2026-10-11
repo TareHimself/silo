@@ -28,10 +28,12 @@ from silo.platform.base import PlatformBackend
 from silo.report import BuildReport
 from silo.silo_package import SiloPackage
 from silo.source import SourceTree, fetch_source
-from silo.tool_resolver import is_fetched_tool, resolve_tool
 
 # Where `silo sync` writes inside a project
 PROJECT_DIR = ".silo"
+
+# Packages this run has already said are in the store
+_reported: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -44,12 +46,23 @@ class NodeInputs:
     tools: dict[str, Path] = field(default_factory=dict)
     # Those tools together with what they link, which they need in order to start
     tool_runtime: tuple[Path, ...] = ()
+    # The programs those tools run themselves
+    carried_programs: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
-class BuiltGraph:
-    store_paths: dict[str, Path]
-    build_ids: dict[str, str]
+class Carried:
+    """Programs that come along with a tool, because it declared them as transitive."""
+
+    programs: tuple[Path, ...] = ()
+    # Those programs' packages together with what they link
+    runtime: tuple[Path, ...] = ()
+
+    def __add__(self, other: "Carried") -> "Carried":
+        return Carried(
+            tuple(dict.fromkeys([*self.programs, *other.programs])),
+            tuple(dict.fromkeys([*self.runtime, *other.runtime])),
+        )
 
 
 @dataclass(frozen=True)
@@ -57,6 +70,17 @@ class BuiltTools:
     packages: dict[str, Path] = field(default_factory=dict)
     runtime: tuple[Path, ...] = ()
     build_ids: tuple[str, ...] = ()
+    # What the tools bring into this package's build
+    carried: Carried = Carried()
+    # What this package brings into the build of whoever uses it as a tool
+    passed_on: Carried = Carried()
+
+
+@dataclass(frozen=True)
+class BuiltGraph:
+    store_paths: dict[str, Path]
+    build_ids: dict[str, str]
+    passed_on: dict[str, Carried]
 
 
 def build_environment(
@@ -67,9 +91,8 @@ def build_environment(
     Shared libraries of its dependencies are findable too, so tests and tools start.
     """
     backend = backend_for(profile.settings.os)
-    fetched = [resolve_tool(tool) for tool in package._declared_tools if is_fetched_tool(tool)]
-    tool_dirs = [tool.bin_dir for tool in fetched]
-    for tool_package in inputs.tools.values():
+    tool_dirs: list[Path] = []
+    for tool_package in dict.fromkeys([*inputs.tools.values(), *inputs.carried_programs]):
         tool_dirs += artifact_dirs(tool_package, "executable")
     env = backend.build_env(profile, tool_dirs, tmp)
 
@@ -203,7 +226,10 @@ def build_node(
     label = f"{node.name}-{node.version}-{build_id}"
     store_path = store_dir() / label
     if store_path.exists():
-        print(f"{label}: already in the store")
+        # A tool such as cmake is reached once for every package that runs it
+        if label not in _reported:
+            print(f"{label}: already in the store")
+        _reported.add(label)
         if report:
             report.record(node, build_id, "cached", store_path)
         return store_path
@@ -227,6 +253,7 @@ def build_node(
             # Kept on failure for inspection, and for local source so rebuilds are incremental
             remove_tree(dirs.root)
     print(f"{label}: stored at {store_path}")
+    _reported.add(label)
     if report:
         report.record(node, build_id, "built", store_path)
     return store_path
@@ -313,13 +340,20 @@ def _build_tools(node: Node, profile: Profile, report: BuildReport | None = None
     packages: dict[str, Path] = {}
     runtime: list[Path] = []
     build_ids: list[str] = []
+    carried = Carried()
+    passed_on = Carried()
     for graph in node.tools:
         built = _build_nodes(graph, graph.build_order(), profile, report)
-        packages[graph.root] = built.store_paths[graph.root]
+        program = built.store_paths[graph.root]
+        packages[graph.root] = program
         needed_to_run = [graph.root, *graph.transitive_dependencies(graph.root)]
-        runtime += [built.store_paths[name] for name in needed_to_run]
+        program_runtime = tuple(built.store_paths[name] for name in needed_to_run)
+        runtime += program_runtime
         build_ids.append(built.build_ids[graph.root])
-    return BuiltTools(packages, tuple(dict.fromkeys(runtime)), tuple(build_ids))
+        carried += built.passed_on[graph.root]
+        if graph.transitive:
+            passed_on += Carried((program,), program_runtime) + built.passed_on[graph.root]
+    return BuiltTools(packages, tuple(dict.fromkeys(runtime)), tuple(build_ids), carried, passed_on)
 
 
 def _inputs_of(
@@ -328,7 +362,8 @@ def _inputs_of(
     return NodeInputs(
         dependencies={name: store_paths[name] for name in graph.transitive_dependencies(node.name)},
         tools=tools.packages,
-        tool_runtime=tools.runtime,
+        tool_runtime=tuple(dict.fromkeys([*tools.runtime, *tools.carried.runtime])),
+        carried_programs=tools.carried.programs,
     )
 
 
@@ -338,8 +373,10 @@ def _build_nodes(
     """Build `nodes`, given dependencies first, each after its own tools."""
     build_ids: dict[str, str] = {}
     store_paths: dict[str, Path] = {}
+    passed_on: dict[str, Carried] = {}
     for node in nodes:
         tools = _build_tools(node, profile, report)
+        passed_on[node.name] = tools.passed_on
         build_ids[node.name] = make_build_id(
             node.package,
             node.source,
@@ -349,7 +386,7 @@ def _build_nodes(
         )
         inputs = _inputs_of(graph, node, store_paths, tools)
         store_paths[node.name] = build_node(node, build_ids[node.name], profile, inputs, report)
-    return BuiltGraph(store_paths, build_ids)
+    return BuiltGraph(store_paths, build_ids, passed_on)
 
 
 def _build_all_but_root(graph: Graph, profile: Profile) -> NodeInputs:

@@ -28,6 +28,8 @@ class Dependency(BaseModel):
     git: str | None = None
     commit: str | None = None
     subdir: str = "."
+    # For a tool: whoever uses the declaring package as a tool can run this one too
+    transitive: bool = False
 
     @staticmethod
     def from_str(
@@ -36,11 +38,12 @@ class Dependency(BaseModel):
         git: str | None = None,
         commit: str | None = None,
         subdir: str = ".",
+        transitive: bool = False,
     ) -> "Dependency":
         if _looks_like_path(spec):
             if git:
                 raise SiloError(f"'{spec}' is a path, so it cannot also come from {git}")
-            return Dependency(path=spec, options=options)
+            return Dependency(path=spec, options=options, transitive=transitive)
         name, _, version = spec.partition("@")
         if git and not (commit and FULL_COMMIT.fullmatch(commit)):
             raise SiloError(
@@ -56,6 +59,7 @@ class Dependency(BaseModel):
             git=git,
             commit=commit.lower() if commit else None,
             subdir=subdir,
+            transitive=transitive,
         )
 
 

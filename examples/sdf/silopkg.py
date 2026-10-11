@@ -17,7 +17,6 @@ class Sdf(SiloPackage):
         # Also as a tool, which puts the msdfgen program on the build PATH
         self.tool("msdfgen@1.12")
         self.tool("cmake@4.3")
-        self.tool("ninja@1.13")
 
     def generate(self):
         CMakeDeps(self).generate()

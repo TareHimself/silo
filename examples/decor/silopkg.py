@@ -17,7 +17,6 @@ class Decor(SiloPackage):
         self.dep("libdecor@0.2.2")
         self.dep("wayland@1.22.0")
         self.tool("cmake@4.3")
-        self.tool("ninja@1.13")
 
     def validate(self):
         if self.profile.settings.os is not Platform.Linux:

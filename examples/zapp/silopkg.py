@@ -14,7 +14,6 @@ class Zapp(SiloPackage):
         self.dep("freetype@2.13.3")
         self.tool("../greetgen")
         self.tool("cmake@4.3")
-        self.tool("ninja@1.13")
 
     def validate(self):
         if self.dependencies["freetype"].options.shared:

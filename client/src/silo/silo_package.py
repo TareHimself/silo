@@ -80,14 +80,20 @@ class SiloPackage(Generic[T]):
         git: str | None = None,
         commit: str | None = None,
         subdir: str = ".",
+        transitive: bool = False,
     ):
         """Use a program during the build.
 
         "cmake@4.3" is fetched ready-made. Anything else is another recipe, found the way
         self.dep() finds one and built first. Its executables land on the build's PATH and
         become CMake targets.
+
+        `transitive` is for a program this package runs when it is itself used as a tool:
+        whoever declares this package as a tool gets that program on PATH too.
         """
-        self._declared_tools.append(Dependency.from_str(spec, options, git, commit, subdir))
+        self._declared_tools.append(
+            Dependency.from_str(spec, options, git, commit, subdir, transitive)
+        )
 
     def override(
         self,
