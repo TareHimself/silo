@@ -77,6 +77,18 @@ def test_install_asks_conan_for_the_package_and_copies_it_in(demo_package, conan
     assert (package.install_dir / "lib" / "vpx.lib").is_file()
 
 
+def test_an_option_can_name_a_dependency_of_the_package(demo_package, conan_tool):
+    package = demo_package(str(conan_tool))
+
+    ConanInstall(package).install(
+        "libvpx/1.14.1", options={"shared": False, "libcurl/*:with_ssl": "schannel"}
+    )
+
+    command, _ = package.commands[0]
+    options = [command[i + 1] for i, part in enumerate(command) if part == "--options"]
+    assert options == ["libvpx/*:shared=False", "libcurl/*:with_ssl=schannel"]
+
+
 def test_conan_keeps_its_files_in_silos_cache(demo_package, conan_tool):
     package = demo_package(str(conan_tool))
 
