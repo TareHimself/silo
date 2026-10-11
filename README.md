@@ -18,7 +18,7 @@ uv run --package silo silo cache list                 # sizes of the caches unde
 uv run --package silo silo cache clear builds git     # delete some caches, or all with no names
 ```
 
-`SILO_HOME` defaults to `~/.silo`. It holds `store` (built packages), `profiles`, and `cache`. Everything under `cache` can be deleted at any time: `builds`, `downloads`, `git`, `snapshots`, `conan` and `registries`. A build folder is deleted once its package is in the store, except for local sources (kept so rebuilds are incremental) and failed builds (kept for inspection). Each build folder is locked, so a second silo building the same package waits and then reuses the result. Pass options with `-o key=value` for the root package or `-o zlib:key=value` for a dependency. `--source zlib=../zlib` builds that package from a local folder for one run.
+`SILO_HOME` defaults to `~/.silo`. It holds `store` (built packages), `profiles`, and `cache`. Everything under `cache` can be deleted at any time: `builds`, `downloads`, `git`, `snapshots`, `conan` and `registries`. The compiler is part of a build's id by kind and generation, so patch releases share store entries: the major version for gcc and clang, and Microsoft's compiler number for MSVC, where toolsets 14.40 to 14.49 are 194. A build folder is deleted once its package is in the store, except for local sources (kept so rebuilds are incremental) and failed builds (kept for inspection). Each build folder is locked, so a second silo building the same package waits and then reuses the result. Pass options with `-o key=value` for the root package or `-o zlib:key=value` for a dependency. `--source zlib=../zlib` builds that package from a local folder for one run.
 
 ## Registries
 
@@ -275,7 +275,7 @@ def build(self):
     ConanInstall(self).install("dav1d/1.4.3#5e2459e132c77183bd16d23d12fd8f4a")
 ```
 
-It only describes MSVC to Conan so far, and it suits packages without dependencies of their own. `settings=` replaces entries of the profile for a package that refuses the real ones (see `libvpx` in silo-recipes).
+It describes MSVC, gcc and clang to Conan, and it suits packages without dependencies of their own. Where Conan Center has no binary for the compiler, Conan builds the package itself with the machine's tools (`make`, `diff`). `settings=` replaces entries of the profile for a package that refuses the real ones (see `libvpx` in silo-recipes).
 
 ## How a build flows
 
@@ -340,9 +340,10 @@ To add a platform, implement `PlatformBackend` (`platform/base.py`) in its own f
 - Version ranges, a lockfile and prebuilt packages. A dependency is an exact version, and everything is built from source.
 - `src.git(url, tag=...)` and version pins, which wait for the lockfile. `src.git(url, commit=..., submodules=...)` works.
 - Submodules in a local source.
-- macOS builds. Linux builds with gcc or clang, and has been run on Ubuntu with gcc only. Most recipes written on Windows have not been built there.
-- On Linux the system's `/usr/bin` is on the build's `PATH`, since the compiler needs it. A tool installed there (make, python3) can be used without being declared.
+- macOS builds. Linux builds with gcc or clang. `zapp` and `sdf` were built in containers of Ubuntu, Debian, Fedora, Arch, Alpine (musl), openSUSE, Rocky and Amazon Linux. `decor` builds on those too, except on Alpine, where glib needs a libintl. Most recipes written on Windows have not been built on Linux.
+- On Linux the system's `/usr/bin` is on the build's `PATH`, since the compiler needs it. A tool installed there can be used without being declared, and `gperf`, `m4` and `bison` in silo-recipes need the machine's `make`.
+- C++20 with clang needs `clang-scan-deps` on the machine, because CMake scans for modules from that standard on. The default standard is 17.
 - libdecor finds its plugins only through `LIBDECOR_PLUGIN_DIR`, which the program sets to the package's `lib/libdecor/plugins-1`.
-- A Python of the recipe's choosing. Meson and build scripts run on silo's own interpreter.
-- `ConanInstall` for compilers other than MSVC, and for packages with dependencies of their own.
+- A Python of the recipe's choosing. Meson and build scripts run on silo's own interpreter, which is on the build's `PATH` as `python3` on Linux.
+- `ConanInstall` for Apple clang, and for packages with dependencies of their own.
 - A check that every library in a link uses the same C runtime. A mismatch shows up only when a consumer links.
