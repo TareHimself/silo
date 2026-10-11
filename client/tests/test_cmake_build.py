@@ -42,7 +42,7 @@ def test_toolchain_sets_the_compiler_and_the_cpp_standard(demo_package, windows_
     compiler = windows_profile.compiler.executable.as_posix()
     assert f'set(CMAKE_C_COMPILER "{compiler}")' in toolchain
     assert f'set(CMAKE_CXX_COMPILER "{compiler}")' in toolchain
-    assert 'set(CMAKE_CXX_STANDARD "20")' in toolchain
+    assert f'set(CMAKE_CXX_STANDARD "{windows_profile.settings.cppstd}")' in toolchain
 
 
 def test_toolchain_hardens_the_stl_in_debug_builds_only(demo_package):
