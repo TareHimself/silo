@@ -12,7 +12,7 @@ uv run --package silo silo build examples/zapp --debug  # root in debug, depende
 uv run --package silo silo sync examples/zapp         # build the dependencies, write examples/zapp/.silo
 uv run --package silo silo sync examples/zapp --debug-all  # debug preset with debug dependencies
 uv run --package silo silo graph examples/zapp        # resolve and print the graph, build nothing
-uv run --package silo silo build examples/webm --report out  # report.json and a log per package
+uv run --package silo silo build examples/sdf --report out   # report.json and a log per package
 uv run --package silo silo run -C examples/zapp -- cmake --version  # any command, in the build environment
 uv run --package silo silo cache list                 # sizes of the caches under <SILO_HOME>/cache
 uv run --package silo silo cache clear builds git     # delete some caches, or all with no names
@@ -89,7 +89,7 @@ The `.silo` folder ignores itself in git.
 
 ## Shared libraries at run time
 
-A program has to ship the shared libraries it links. silo's toolchain file sets `SILO_RUNTIME_LIBRARIES` to those files, for every dependency, and one line installs them beside the program on any system (see `examples/webm/CMakeLists.txt`):
+A program has to ship the shared libraries it links. silo's toolchain file sets `SILO_RUNTIME_LIBRARIES` to those files, for every dependency, and one line installs them beside the program on any system (see `examples/decor/CMakeLists.txt`):
 
 ```cmake
 install(TARGETS app RUNTIME DESTINATION bin)
@@ -242,7 +242,6 @@ cli.build
 | `client/src/silo/cache.py` | The caches under `<SILO_HOME>/cache` and how to clear them |
 | `examples/sdf/` | A local project that links msdfgen and its whole dependency chain |
 | `examples/vpx/` | A local project that links libvpx, which silo gets from Conan |
-| `examples/webm/` | A local project that links webmdx and, through it, five codec and container libraries |
 | `examples/decor/` | Linux only: links libdecor and opens a Wayland connection |
 | `examples/zapp/` | A local project: `src.local(".")`, a path dependency with an alias, a tool, presets and a `validate` hook |
 | `examples/greetgen/` | A code generator that zapp uses as a tool |
@@ -259,6 +258,5 @@ To add a platform, implement `PlatformBackend` (`platform/base.py`) in its own f
 - On Linux the system's `/usr/bin` is on the build's `PATH`, since the compiler needs it. A tool installed there (make, python3) can be used without being declared.
 - libdecor finds its plugins only through `LIBDECOR_PLUGIN_DIR`, which the program sets to the package's `lib/libdecor/plugins-1`.
 - A Python of the recipe's choosing. Meson and build scripts run on silo's own interpreter.
-- `rwin` in silo-recipes is Windows only. Its Wayland dependencies now have recipes, but it is not wired to them.
 - `ConanInstall` for compilers other than MSVC, and for packages with dependencies of their own.
 - A check that every library in a link uses the same C runtime. A mismatch shows up only when a consumer links.
