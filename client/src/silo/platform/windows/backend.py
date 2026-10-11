@@ -4,6 +4,7 @@ from pathlib import Path
 
 from silo.build_profile import CompilerProfile, Profile
 from silo.enums import Architecture, Compiler, RuntimeLibrary
+from silo.errors import SiloError
 from silo.platform.base import PlatformBackend
 from silo.platform.windows.msvc import capture_vcvars, find_visual_studio
 
@@ -42,7 +43,9 @@ class WindowsBackend(PlatformBackend):
     )
     executable_suffixes = (".exe",)
 
-    def detect_compiler(self, arch: Architecture) -> CompilerProfile:
+    def detect_compiler(self, arch: Architecture, kind: Compiler | None = None) -> CompilerProfile:
+        if kind not in (None, Compiler.MSVC):
+            raise SiloError(f"Windows builds with msvc, not {kind.value}")
         install_path = find_visual_studio()
         env = capture_vcvars(install_path, arch)
         cl = shutil.which("cl.exe", path=env["PATH"])
