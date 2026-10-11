@@ -12,6 +12,8 @@ from silo.paths import registries_dir
 CONFIG_FILE = "silo.config.toml"
 RECIPES_DIR = "recipes"
 RECIPE_FILE = "silopkg.py"
+# In a registry folder, in place of the recipe: the repository and commit that hold it
+POINTER_FILE = "silopkg.toml"
 
 
 FULL_COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
@@ -94,7 +96,9 @@ class Registry:
         if not folder.is_dir():
             return []
         return sorted(
-            version.name for version in folder.iterdir() if (version / RECIPE_FILE).is_file()
+            version.name
+            for version in folder.iterdir()
+            if (version / RECIPE_FILE).is_file() or (version / POINTER_FILE).is_file()
         )
 
 
@@ -193,6 +197,19 @@ class RecipeLookup:
             raise ResolutionError(f"{git} at {commit[:12]} has no {RECIPE_FILE} in '{subdir}'.")
         return recipe_dir
 
+    def _followed(self, entry: Path, name: str) -> Path:
+        """A registry folder's recipe, or the recipe its pointer file leads to."""
+        pointer = entry / POINTER_FILE
+        if not pointer.is_file():
+            return entry
+        if (entry / RECIPE_FILE).is_file():
+            raise ResolutionError(f"{entry} has both {RECIPE_FILE} and {POINTER_FILE}. Keep one.")
+        target = tomllib.loads(pointer.read_text(encoding="utf-8"))
+        git, commit = target.get("git"), str(target.get("commit", "")).lower()
+        if not git or not FULL_COMMIT.fullmatch(commit):
+            raise ResolutionError(f"{pointer} needs git = <repository> and commit = <full hash>.")
+        return self._located_by_recipe(name, git, commit, target.get("subdir", "."))
+
     def find(
         self,
         name: str,
@@ -228,7 +245,7 @@ class RecipeLookup:
             )
         found = self._in_registries(name, version)
         if isinstance(found, Path):
-            return found
+            return self._followed(found, name)
         if found:
             raise ResolutionError(
                 f"{wanted_by} depends on '{name}@{version}', but the registry only has "

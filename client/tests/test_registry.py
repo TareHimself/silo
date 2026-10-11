@@ -300,3 +300,45 @@ def test_two_recipes_that_disagree_on_a_commit_are_told_how_to_settle_it(
 
     with pytest.raises(ResolutionError, match=r"\[package\.webmdx\] entry"):
         resolve(app, BuildMode.Release)
+
+
+def point_at(registry_dir: Path, version: str, library: Path, commit: str) -> Path:
+    entry = registry_dir / "recipes" / "webmdx" / version
+    entry.mkdir(parents=True)
+    text = f'git = "{library.as_uri()}"\ncommit = "{commit}"\n'
+    (entry / "silopkg.toml").write_text(text, encoding="utf-8")
+    return entry
+
+
+def test_a_registry_entry_can_point_at_the_commit_holding_the_recipe(project, library, tmp_path):
+    commit = git(library, "rev-parse", "HEAD")
+    point_at(tmp_path / "registry", "1.0.0", library, commit)
+    app = project('name = "local"\npath = "../registry"', deps='self.dep("webmdx@1.0.0")')
+
+    source = resolve(app, BuildMode.Release).nodes["webmdx"].source
+
+    assert source.id == f"fetched:{library.as_uri()}@{commit}:."
+
+
+def test_a_pointer_filed_under_the_wrong_version_is_reported(project, library, tmp_path):
+    point_at(tmp_path / "registry", "2.0.0", library, git(library, "rev-parse", "HEAD"))
+    app = project('name = "local"\npath = "../registry"', deps='self.dep("webmdx@2.0.0")')
+
+    with pytest.raises(ResolutionError, match=r"should hold webmdx 2\.0\.0"):
+        resolve(app, BuildMode.Release)
+
+
+def test_a_pointer_needs_a_full_commit_and_no_recipe_beside_it(project, library, tmp_path):
+    commit = git(library, "rev-parse", "HEAD")
+    entry = point_at(tmp_path / "registry", "1.0.0", library, "main")
+    app = project('name = "local"\npath = "../registry"', deps='self.dep("webmdx@1.0.0")')
+
+    with pytest.raises(ResolutionError, match="commit = <full hash>"):
+        resolve(app, BuildMode.Release)
+
+    (entry / "silopkg.toml").write_text(
+        f'git = "{library.as_uri()}"\ncommit = "{commit}"\n', encoding="utf-8"
+    )
+    (entry / "silopkg.py").write_text(LOCAL_RECIPE, encoding="utf-8", newline="\n")
+    with pytest.raises(ResolutionError, match="has both"):
+        resolve(app, BuildMode.Release)

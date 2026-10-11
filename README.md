@@ -44,6 +44,27 @@ and depends on packages by name and exact version: `self.dep("zlib@1.3.1")`, `se
 | left out, a branch or a tag | Asks the remote where it is once per run (`git ls-remote`, no download) and fetches only a commit it does not have. Offline, it uses the last copy and says so |
 | a full commit hash | Stays on that commit. No network once it is fetched |
 
+### A library that keeps its own recipe
+
+A library such as webmdx has its `silopkg.py` in its own repository, saying `src.local(".")`: build the folder I am in. That recipe is never rewritten to be published. A git registry lists it with a pointer file in place of a recipe:
+
+```
+recipes/zlib/1.3.1/silopkg.py        # a third-party library: the recipe is here
+recipes/webmdx/1.0.0/silopkg.toml    # a library with its own recipe: where that is
+```
+
+```toml
+git = "https://github.com/TareHimself/webmdx"
+commit = "c741ae6ec0e22f48926c7ba473c718be22b0556d"
+subdir = "."              # optional
+```
+
+silo fetches that commit, uses the recipe in it and builds that commit's files. Whoever depends on `webmdx@1.0.0` sees no difference.
+
+- The commit is a full hash, and the recipe there has to carry the name and version of the folder the pointer is in.
+- A folder holds a recipe or a pointer, not both.
+- The entry lasts as long as that commit can be fetched. A tag on it keeps a force-push from orphaning it.
+
 ### A package that is not in a registry
 
 Registries are the normal way to get a package. For one that is not in a registry yet, or that is being worked on alongside the project, there are two ways to say where its recipe is.
