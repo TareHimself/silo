@@ -85,6 +85,10 @@ class Registry:
             staging = checkout.with_name(f".tmp-{checkout.name}")
             remove_tree(staging)
             fetch_commit(self.git, commit, staging)
+            # An empty repository around the files, so a recipe here gets the same hash
+            # as the same recipe in a working copy: git's own, which ignores line endings
+            # that a checkout converted
+            subprocess.run(["git", "init", "--quiet", str(staging)], check=True)
             staging.rename(checkout)
         return checkout
 

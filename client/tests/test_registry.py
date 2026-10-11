@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from silo import registry
+from silo.build_id import recipe_tree_hash
 from silo.dependency_graph import resolve
 from silo.enums import BuildMode
 from silo.errors import ResolutionError, SiloError
@@ -179,3 +180,10 @@ def test_a_registry_that_cannot_be_reached_uses_its_last_copy(project, upstream,
 
     assert "zlib" in resolve(app, BuildMode.Release).nodes
     assert "cannot be reached" in capsys.readouterr().out
+
+
+def test_a_recipe_hashes_the_same_from_a_working_copy_and_from_a_git_registry(upstream):
+    fetched = registry.Registry("remote", git=upstream.as_uri())
+    recipe = "recipes/zlib/1.3.1"
+
+    assert recipe_tree_hash(fetched.root / recipe) == recipe_tree_hash(upstream / recipe)

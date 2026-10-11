@@ -1,4 +1,4 @@
 # Where the examples find the packages they depend on by name
 [[registry]]
 name = "silo-recipes"
-path = "../silo-recipes"
+git = "https://github.com/TareHimself/silo-recipes"
