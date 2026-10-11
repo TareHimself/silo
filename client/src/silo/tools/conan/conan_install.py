@@ -80,8 +80,9 @@ class ConanInstall:
     ) -> None:
         """Install `reference`, such as "libvpx/1.14.1", building it if Conan has no binary.
 
-        `options` are the Conan package's own. `settings` replaces entries of the profile
-        silo would write, for a package that refuses the real ones.
+        `options` are the Conan package's own, or a dependency's when written the way Conan
+        does, such as "libcurl/*:with_ssl". `settings` replaces entries of the profile silo
+        would write, for a package that refuses the real ones.
         """
         context = self.package.context
         name = reference.split("/")[0]
@@ -106,7 +107,8 @@ class ConanInstall:
             context.build_dir / "conan-out",
         ]
         for key, value in (options or {}).items():
-            command += ["--options", f"{name}/*:{key}={value}"]
+            scoped = key if ":" in key else f"{name}/*:{key}"
+            command += ["--options", f"{scoped}={value}"]
 
         # The launcher in the tool's bin folder cannot find Conan's modules by itself
         environment = {"CONAN_HOME": str(conan_dir()), "PYTHONPATH": str(self._conan_root())}
