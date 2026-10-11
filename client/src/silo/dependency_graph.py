@@ -9,7 +9,7 @@ from silo.dependency import Dependency, OptionValue, Override, ResolvedDependenc
 from silo.enums import BuildMode
 from silo.errors import InvalidConfiguration, ResolutionError
 from silo.options import Options
-from silo.registry import Registry, find_recipe, load_registries
+from silo.registry import RecipeLookup
 from silo.silo_package import SiloPackage
 from silo.source import SourceSpec
 from silo.tool_resolver import is_fetched_tool
@@ -95,18 +95,24 @@ class _Pass:
     decisions: _Decisions
 
 
-def _recipe_dir_of(
-    dependency: Dependency, declared_by: SiloPackage, registries: list[Registry]
-) -> Path:
+def _recipe_dir_of(dependency: Dependency, declared_by: SiloPackage, lookup: RecipeLookup) -> Path:
     """Where a dependency's recipe is: the path the recipe gave, or a registry's folder."""
     if dependency.path is not None:
         return (declared_by.recipe_dir / dependency.path).resolve()
     assert dependency.name is not None
-    recipe_dir = find_recipe(registries, dependency.name, dependency.version, declared_by.name)
+    recipe_dir = lookup.find(
+        dependency.name,
+        dependency.version,
+        declared_by.name,
+        dependency.git,
+        dependency.commit,
+        dependency.subdir,
+    )
     found = load_package_cls(recipe_dir)
-    if (found.name, found.version) != (dependency.name, dependency.version):
+    wanted_version = dependency.version or found.version
+    if (found.name, found.version) != (dependency.name, wanted_version):
         raise ResolutionError(
-            f"{recipe_dir} should hold {dependency.name} {dependency.version}, but its recipe "
+            f"{recipe_dir} should hold {dependency.name} {wanted_version}, but its recipe "
             f"is {found.name} {found.version}."
         )
     return recipe_dir.resolve()
@@ -118,10 +124,10 @@ class _Resolver:
         root_dir: Path,
         cli_options: dict[str, OptionValues],
         profile: Profile | None,
-        registries: list[Registry],
+        lookup: RecipeLookup,
     ) -> None:
         self.profile = profile
-        self.registries = registries
+        self.lookup = lookup
         self.recipe_dirs: dict[str, Path] = {}
         self.recipe_classes: dict[Path, type[SiloPackage]] = {}
         self.root = self._load_recipe(root_dir)
@@ -143,12 +149,13 @@ class _Resolver:
         if known_dir != recipe_dir:
             raise ResolutionError(
                 f"Two recipes provide '{name}': {known_dir} and {recipe_dir}. "
-                "A graph holds one copy of each package."
+                f"A graph holds one copy of each package. A [package.{name}] entry in the "
+                "project's silo.config.toml chooses one."
             )
         return name
 
     def _dependency_name(self, dependency: Dependency, declared_by: SiloPackage) -> str:
-        return self._load_recipe(_recipe_dir_of(dependency, declared_by, self.registries))
+        return self._load_recipe(_recipe_dir_of(dependency, declared_by, self.lookup))
 
     def _options_for(self, name: str, decisions: _Decisions) -> Options:
         override = decisions.overrides.get(name, Override())
@@ -252,7 +259,7 @@ def _check_shared(result: _Pass) -> None:
 
 
 def _resolve_tools(
-    package: SiloPackage, tool_chain: tuple[Path, ...], registries: list[Registry]
+    package: SiloPackage, tool_chain: tuple[Path, ...], lookup: RecipeLookup
 ) -> list[Graph]:
     """Give each tool recipe a graph of its own, in release.
 
@@ -263,7 +270,7 @@ def _resolve_tools(
     for tool in package._declared_tools:
         if is_fetched_tool(tool):
             continue
-        tool_dir = _recipe_dir_of(tool, package, registries)
+        tool_dir = _recipe_dir_of(tool, package, lookup)
         if tool_dir in tool_chain:
             cycle = [*tool_chain[tool_chain.index(tool_dir) :], tool_dir]
             names = " -> ".join(folder.name for folder in cycle)
@@ -275,14 +282,18 @@ def _resolve_tools(
                 {"": tool.options} if tool.options else None,
                 tool_chain=(*tool_chain, tool_dir),
                 profile=package._profile,
-                registries=registries,
+                lookup=lookup,
             )
         )
     return graphs
 
 
 def _resolve_source(
-    package: SiloPackage, override: Override, root_dir: Path, cli_source: Path | None
+    package: SiloPackage,
+    override: Override,
+    root_dir: Path,
+    cli_source: Path | None,
+    lookup: RecipeLookup,
 ) -> SourceSpec:
     """The recipe's declared source, unless the command line or the root recipe replaced it."""
     source = SourceSpec()
@@ -296,8 +307,18 @@ def _resolve_source(
         return source
 
     package.source(source)
-    if source.local_source:
+    if not source.local_source:
+        return source
+    fetched = lookup.fetched_from(package.recipe_dir)
+    if fetched is None:
         source.snapshot_local(package.recipe_dir)
+        return source
+    # The recipe builds the folder it sits in, and that folder is part of a fetched
+    # commit. There is no working copy to take a snapshot of, and none is needed.
+    assert source.local_path is not None
+    folder = (package.recipe_dir / source.local_path).resolve()
+    where = folder.relative_to(fetched.root).as_posix()
+    source.copy_of(folder, f"{fetched.url}@{fetched.commit}:{where}")
     return source
 
 
@@ -309,7 +330,7 @@ def resolve(
     debug_all: bool = False,
     tool_chain: tuple[Path, ...] = (),
     profile: Profile | None = None,
-    registries: list[Registry] | None = None,
+    lookup: RecipeLookup | None = None,
 ) -> Graph:
     """Load the root recipe and everything it depends on, with overrides and options applied.
 
@@ -318,13 +339,13 @@ def resolve(
     `debug_all` builds every package in debug, whatever the recipes say. None of these reach
     tools, which are graphs of their own. `tool_chain` is the tools being resolved around
     this one, to catch a tool that needs itself. `profile` is what recipes read in deps()
-    and validate(). `registries` answer dependencies given by name. Left out, they come
+    and validate(). `lookup` answers dependencies given by name. Left out, it comes
     from the silo.config.toml nearest to the root recipe.
     """
     cli_sources = cli_sources or {}
-    if registries is None:
-        registries = load_registries(root_dir)
-    resolver = _Resolver(root_dir, cli_options or {}, profile, registries)
+    if lookup is None:
+        lookup = RecipeLookup.load(root_dir)
+    resolver = _Resolver(root_dir, cli_options or {}, profile, lookup)
     result = resolver.settle()
     _check_overrides(result, resolver.cli_options, cli_sources)
     _check_shared(result)
@@ -336,7 +357,9 @@ def resolve(
         # Dependencies are release unless the root says otherwise, so prebuilts can be used
         default_build_type = root_build_type if name == resolver.root else BuildMode.Release
         root_dir = result.packages[resolver.root].recipe_dir
-        source = _resolve_source(package, override, root_dir, cli_sources.get(name))
+        source = _resolve_source(
+            package, override, root_dir, cli_sources.get(name), resolver.lookup
+        )
         nodes[name] = Node(
             package=package,
             # A source override can say which version the folder it points at really is
@@ -345,7 +368,7 @@ def resolve(
             build_type=BuildMode.Debug if debug_all else override.build_type or default_build_type,
             overridden=name in overrides or name in resolver.cli_options or name in cli_sources,
             dependency_names=result.edges[name],
-            tools=_resolve_tools(package, tool_chain, resolver.registries),
+            tools=_resolve_tools(package, tool_chain, resolver.lookup),
         )
 
     for node in nodes.values():

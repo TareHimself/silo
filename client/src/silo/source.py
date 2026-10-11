@@ -60,6 +60,12 @@ class SourceSpec:
         """No source at all, for a recipe whose build fetches a finished package."""
         self.kind = "empty"
 
+    def copy_of(self, folder: Path, identity: str) -> None:
+        """A folder that never changes, such as part of a fetched commit, named by `identity`."""
+        self.kind = "copied"
+        self.local_dir = folder
+        self.tree = identity
+
     def local(self, path: str = ".") -> None:
         """A folder on disk, relative to the recipe. It must be inside a git repository."""
         self.kind = "local"
@@ -76,6 +82,11 @@ class SourceSpec:
         return self.kind == "local"
 
     @property
+    def holds_the_recipe(self) -> bool:
+        """True when the recipe builds the folder it sits in, so the source covers both."""
+        return self.kind in ("local", "copied")
+
+    @property
     def id(self) -> str:
         if self.kind == "fetched":
             return f"fetched:{self.sha256}"
@@ -86,6 +97,8 @@ class SourceSpec:
             return f"fetched:{self.commit}+submodules:{chosen}"
         if self.kind == "empty":
             return "empty"
+        if self.kind == "copied":
+            return f"fetched:{self.tree}"
         if self.kind == "local" and self.tree:
             return f"local:{self.tree}"
         raise SiloError("The recipe's source() declared no source")
@@ -175,6 +188,10 @@ def fetch_source(spec: SourceSpec, dest: Path) -> None:
     """Put a tarball or git source into `dest`. Local source goes through a git snapshot."""
     if spec.kind == "empty":
         dest.mkdir(parents=True)
+        return
+    if spec.kind == "copied":
+        assert spec.local_dir is not None
+        shutil.copytree(spec.local_dir, dest)
         return
     assert spec.url is not None
     if spec.kind == "git":

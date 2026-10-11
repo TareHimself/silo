@@ -44,6 +44,41 @@ and depends on packages by name and exact version: `self.dep("zlib@1.3.1")`, `se
 | left out, a branch or a tag | Asks the remote where it is once per run (`git ls-remote`, no download) and fetches only a commit it does not have. Offline, it uses the last copy and says so |
 | a full commit hash | Stays on that commit. No network once it is fetched |
 
+### A package that is not in a registry
+
+Registries are the normal way to get a package. For one that is not in a registry yet, or that is being worked on alongside the project, there are two ways to say where its recipe is.
+
+The project's config, which has the last word:
+
+```toml
+[package.webmdx]
+git = "https://github.com/TareHimself/webmdx"
+rev = "ee5da08a378b0e8818c520c6fa883ebed44b7a2f"
+subdir = "."              # optional: where silopkg.py is in that repository
+
+[package.rwin]
+path = "../rwin"          # a folder, while working on both
+```
+
+Recipes still say `self.dep("webmdx@1.0.0")`. They state what they need, and the root project decides where it comes from, so moving a package between a pinned commit and a local checkout is a config edit.
+
+A recipe, for a dependency of its own that no registry has:
+
+```python
+self.dep("ebml@1.4.5", git="https://github.com/Matroska-Org/libebml", commit="4f2a91c0...", subdir=".")
+```
+
+Everyone who depends on that recipe then gets ebml without repeating the location. `self.tool` takes the same arguments.
+
+- Order: the project's `[package.<name>]` entry, then the location the asking recipe gave, then the registries.
+- In a recipe the commit has to be a full hash. Following a branch or tag is only for the project's own config, so a dependency cannot make a build change from one day to the next.
+- Two recipes that point one package at different places stop the build. A `[package.<name>]` entry in the project's config chooses.
+- `rev` works as it does for a registry: a full commit hash stays put, a branch or tag is followed.
+- The version in `self.dep` is optional for such a package. When given, it has to match the recipe's.
+- A recipe taken from a commit usually says `src.local(".")`, meaning the folder it sits in. silo then builds that commit's files, and the build id names the commit.
+
+### Rules
+
 - Registries are checked in order, and the first one that has the package name at all decides. A later registry cannot shadow an earlier one, and the answer never depends on which recipe asks.
 - Only the root project's `silo.config.toml` counts. A dependency's own file is ignored.
 - Each fetched commit is its own folder under `<SILO_HOME>/cache/registries` and is never changed.
@@ -233,7 +268,7 @@ cli.build
 | `client/src/silo/git_snapshot.py` | Hash and copy a local folder through git, without touching its repo |
 | `client/src/silo/verifier.py` | Rejects a package that has its install prefix compiled in |
 | `client/src/silo/tool_resolver.py` | Build tools installed through uv |
-| `client/src/silo/registry.py` | `silo.config.toml` and looking a package up in its registries |
+| `client/src/silo/registry.py` | `silo.config.toml`: registries, packages taken from a folder or a commit, and the lookup |
 | `client/src/silo/errors.py` | Errors the CLI prints without a traceback |
 | `client/src/silo/report.py` | What `silo build --report` writes |
 | `client/src/silo/platform/` | Everything OS specific, behind `PlatformBackend` |

@@ -86,7 +86,7 @@ def make_build_id(
     dependency_ids: Iterable[str] = (),
 ) -> str:
     inputs = xxhash.xxh128()
-    inputs.update(recipe_hash(package.recipe_dir, source.local_source).encode())
+    inputs.update(recipe_hash(package.recipe_dir, source.holds_the_recipe).encode())
     inputs.update(source.id.encode())
     inputs.update(HELPERS_VERSION.encode())
     for setting in relevant_settings(package):

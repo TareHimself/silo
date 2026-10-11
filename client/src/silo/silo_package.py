@@ -56,16 +56,38 @@ class SiloPackage(Generic[T]):
 
     # Declarations, called from deps()
 
-    def dep(self, spec: str, options: dict[str, OptionValue] | None = None):
-        self._declared_deps.append(Dependency.from_str(spec, options))
+    def dep(
+        self,
+        spec: str,
+        options: dict[str, OptionValue] | None = None,
+        *,
+        git: str | None = None,
+        commit: str | None = None,
+        subdir: str = ".",
+    ):
+        """Link another package: "zlib@1.3.1" from a registry, or a path such as "../zlib".
 
-    def tool(self, spec: str, options: dict[str, OptionValue] | None = None):
+        `git` and `commit` say where the recipe is for a package no registry has yet.
+        `subdir` is the folder in that repository holding silopkg.py.
+        """
+        self._declared_deps.append(Dependency.from_str(spec, options, git, commit, subdir))
+
+    def tool(
+        self,
+        spec: str,
+        options: dict[str, OptionValue] | None = None,
+        *,
+        git: str | None = None,
+        commit: str | None = None,
+        subdir: str = ".",
+    ):
         """Use a program during the build.
 
-        "cmake@4.3" is fetched ready-made. A path such as "../protobuf" is another recipe,
-        built first, whose executables land on the build's PATH and become CMake targets.
+        "cmake@4.3" is fetched ready-made. Anything else is another recipe, found the way
+        self.dep() finds one and built first. Its executables land on the build's PATH and
+        become CMake targets.
         """
-        self._declared_tools.append(Dependency.from_str(spec, options))
+        self._declared_tools.append(Dependency.from_str(spec, options, git, commit, subdir))
 
     def override(
         self,

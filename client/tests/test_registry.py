@@ -8,7 +8,8 @@ from silo.build_id import recipe_hash
 from silo.dependency_graph import resolve
 from silo.enums import BuildMode
 from silo.errors import ResolutionError, SiloError
-from silo.registry import load_registries
+from silo.registry import RecipeLookup
+from silo.source import fetch_source
 
 RECIPE = """\
 from silo import SiloPackage
@@ -112,7 +113,7 @@ def test_a_registry_entry_needs_exactly_one_source(tmp_path):
     (tmp_path / "silo.config.toml").write_text('[[registry]]\nname = "both"\n', encoding="utf-8")
 
     with pytest.raises(SiloError, match="either path or git"):
-        load_registries(tmp_path)
+        RecipeLookup.load(tmp_path)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -187,3 +188,115 @@ def test_a_recipe_hashes_the_same_from_a_working_copy_and_from_a_git_registry(up
     recipe = "recipes/zlib/1.3.1"
 
     assert recipe_hash(fetched.root / recipe, False) == recipe_hash(upstream / recipe, False)
+
+
+LOCAL_RECIPE = """\
+from silo import SiloPackage
+
+
+class Webmdx(SiloPackage):
+    name = "webmdx"
+    version = "1.0.0"
+
+    def source(self, src):
+        src.local(".")
+"""
+
+
+@pytest.fixture
+def library(tmp_path):
+    """A library that keeps its recipe in its own repository and builds the folder it is in."""
+    repo = tmp_path / "webmdx"
+    repo.mkdir()
+    (repo / "silopkg.py").write_text(LOCAL_RECIPE, encoding="utf-8", newline="\n")
+    (repo / "decoder.cpp").write_text("// code", encoding="utf-8", newline="\n")
+    git(repo, "init", "--quiet")
+    commit_all(repo, "first")
+    return repo
+
+
+def configure(app: Path, text: str) -> None:
+    (app.parent / "silo.config.toml").write_text(text, encoding="utf-8")
+
+
+def test_a_package_can_be_taken_from_a_folder(project, library, tmp_path):
+    publish(tmp_path / "registry", "webmdx", "0.5")
+    app = project(deps='self.dep("webmdx@1.0.0")')
+    configure(
+        app,
+        '[[registry]]\nname = "local"\npath = "../registry"\n'
+        '[package.webmdx]\npath = "../webmdx"\n',
+    )
+
+    node = resolve(app, BuildMode.Release).nodes["webmdx"]
+
+    assert node.version == "1.0.0"
+    assert node.source.local_source
+
+
+def test_a_package_from_a_git_commit_builds_that_commits_folder(project, library, tmp_path):
+    commit = git(library, "rev-parse", "HEAD")
+    (library / "decoder.cpp").write_text("// newer code", encoding="utf-8", newline="\n")
+    commit_all(library, "second")
+    app = project(deps='self.dep("webmdx")')
+    configure(app, f'[package.webmdx]\ngit = "{library.as_uri()}"\nrev = "{commit}"\n')
+
+    source = resolve(app, BuildMode.Release).nodes["webmdx"].source
+    fetch_source(source, tmp_path / "src")
+
+    assert not source.local_source
+    assert source.id == f"fetched:{library.as_uri()}@{commit}:."
+    assert (tmp_path / "src" / "decoder.cpp").read_text(encoding="utf-8") == "// code"
+
+
+def test_a_package_entry_needs_a_recipe_where_it_points(project):
+    app = project(deps='self.dep("webmdx@1.0.0")')
+    configure(app, '[package.webmdx]\npath = "../nowhere"\n')
+
+    with pytest.raises(ResolutionError, match=r"has no silopkg\.py"):
+        resolve(app, BuildMode.Release)
+
+
+def located(library: Path, commit: str) -> str:
+    return f'self.dep("webmdx@1.0.0", git="{library.as_uri()}", commit="{commit}")'
+
+
+def test_a_recipe_can_say_which_commit_holds_a_dependencys_recipe(project, library, tmp_path):
+    commit = git(library, "rev-parse", "HEAD")
+    app = project(deps=located(library, commit))
+
+    source = resolve(app, BuildMode.Release).nodes["webmdx"].source
+
+    assert source.id == f"fetched:{library.as_uri()}@{commit}:."
+
+
+def test_the_projects_config_wins_over_a_recipes_location(project, library, tmp_path):
+    fork = tmp_path / "fork"
+    write_recipe(fork, "webmdx", "1.0.0")
+    app = project(deps=located(library, git(library, "rev-parse", "HEAD")))
+    configure(app, '[package.webmdx]\npath = "../fork"\n')
+
+    graph = resolve(app, BuildMode.Release)
+
+    assert graph.nodes["webmdx"].package.recipe_dir == fork.resolve()
+
+
+def test_a_recipe_cannot_follow_a_branch(project, library):
+    app = project(deps=f'self.dep("webmdx@1.0.0", git="{library.as_uri()}", commit="main")')
+
+    with pytest.raises(SiloError, match="needs commit=<full hash>"):
+        resolve(app, BuildMode.Release)
+
+
+def test_two_recipes_that_disagree_on_a_commit_are_told_how_to_settle_it(
+    project, library, tmp_path
+):
+    first = git(library, "rev-parse", "HEAD")
+    (library / "decoder.cpp").write_text("// newer code", encoding="utf-8", newline="\n")
+    second = commit_all(library, "second")
+    publish(tmp_path / "registry", "player", "1.0", located(library, second))
+    app = project(deps=f'self.dep("player@1.0"); {located(library, first)}')
+    configure(app, '[[registry]]\nname = "local"\npath = "../registry"\n')
+
+    with pytest.raises(ResolutionError, match=r"\[package\.webmdx\] entry"):
+        resolve(app, BuildMode.Release)

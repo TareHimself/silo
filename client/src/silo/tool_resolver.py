@@ -73,7 +73,7 @@ def _install(tool: Dependency) -> ResolvedTool:
 
 def is_fetched_tool(tool: Dependency) -> bool:
     """True for a ready-made program such as "cmake@4.3". Anything else is a recipe."""
-    return tool.path is None and tool.name in UV_TOOL_BIN
+    return tool.path is None and tool.git is None and tool.name in UV_TOOL_BIN
 
 
 def resolve_tool(tool: Dependency) -> ResolvedTool:
