@@ -1,3 +1,5 @@
+#include "greeting_text.h"
+
 const char* greeting() {
-    return "hello from zapp";
+    return ZAPP_GREETING;
 }
