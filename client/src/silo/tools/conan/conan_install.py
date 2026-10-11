@@ -24,28 +24,40 @@ CONAN_ARCH = {
 # compiler.runtime and compiler.runtime_type
 CONAN_RUNTIME = {RuntimeLibrary.DynamicRelease: ("dynamic", "Release")}
 
+CONAN_COMPILER = {Compiler.GCC: "gcc", Compiler.Clang: "clang"}
+# The GNU C++ library with the C++11 ABI, which gcc and clang both use on Linux
+GNU_LIBCXX = "libstdc++11"
+
 OptionValue = str | bool | int
 
 
-def _msvc_version(toolset: str) -> str:
-    """Conan names MSVC by its compiler number: toolset 14.4x is 194, 14.5x is 195."""
-    minor = int(toolset.split(".")[1])
-    return str(190 + minor // 10)
+def _compiler_settings(profile: Profile) -> dict[str, str]:
+    compiler = profile.compiler
+    if compiler.kind is Compiler.MSVC:
+        backend = backend_for(profile.settings.os)
+        runtime, runtime_type = CONAN_RUNTIME[backend.runtime_library(profile)]
+        return {
+            "compiler": "msvc",
+            "compiler.version": compiler.generation,
+            "compiler.runtime": runtime,
+            "compiler.runtime_type": runtime_type,
+        }
+    if compiler.kind in CONAN_COMPILER:
+        return {
+            "compiler": CONAN_COMPILER[compiler.kind],
+            "compiler.version": compiler.generation,
+            "compiler.libcxx": profile.settings.libcxx or GNU_LIBCXX,
+        }
+    raise SiloError(f"ConanInstall cannot describe {compiler.kind.value} to Conan yet")
 
 
 def conan_settings(profile: Profile, build_type: BuildMode) -> dict[str, str]:
     """silo's profile in Conan's words, with the release runtime silo uses for every build."""
-    if profile.compiler.kind is not Compiler.MSVC:
-        raise SiloError(f"ConanInstall cannot describe {profile.compiler.kind.value} to Conan yet")
-    runtime, runtime_type = CONAN_RUNTIME[backend_for(profile.settings.os).runtime_library(profile)]
     return {
         "os": CONAN_OS[profile.settings.os],
         "arch": CONAN_ARCH[profile.settings.arch],
         "build_type": "Debug" if build_type is BuildMode.Debug else "Release",
-        "compiler": "msvc",
-        "compiler.version": _msvc_version(profile.compiler.version),
-        "compiler.runtime": runtime,
-        "compiler.runtime_type": runtime_type,
+        **_compiler_settings(profile),
         "compiler.cppstd": str(profile.settings.cppstd),
     }
 

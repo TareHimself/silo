@@ -3,7 +3,7 @@ import os
 import pytest
 
 from silo.build_context import BuildContext
-from silo.enums import BuildMode
+from silo.enums import BuildMode, Compiler
 from silo.errors import SiloError
 from silo.paths import conan_dir
 from silo.source import SourceSpec, fetch_source
@@ -63,6 +63,36 @@ def test_msvc_is_named_by_its_compiler_number(windows_profile):
     profile = windows_profile.model_copy(update={"compiler": compiler})
 
     assert conan_settings(profile, BuildMode.Release)["compiler.version"] == "194"
+
+
+def test_gcc_is_named_by_its_major_version_and_the_gnu_cpp_library(linux_profile):
+    settings = conan_settings(linux_profile, BuildMode.Release)
+
+    version = linux_profile.compiler.version.split(".")[0]
+    assert settings["compiler"] == "gcc"
+    assert settings["compiler.version"] == version
+    assert settings["compiler.libcxx"] == "libstdc++11"
+    assert "compiler.runtime" not in settings
+
+
+def test_clang_on_linux_is_described_too(linux_profile):
+    compiler = linux_profile.compiler.model_copy(
+        update={"kind": Compiler.Clang, "version": "18.1.3"}
+    )
+    profile = linux_profile.model_copy(update={"compiler": compiler})
+
+    settings = conan_settings(profile, BuildMode.Release)
+
+    assert settings["compiler"] == "clang"
+    assert settings["compiler.version"] == "18"
+
+
+def test_a_compiler_conan_is_not_told_about_is_refused(linux_profile):
+    compiler = linux_profile.compiler.model_copy(update={"kind": Compiler.AppleClang})
+    profile = linux_profile.model_copy(update={"compiler": compiler})
+
+    with pytest.raises(SiloError, match="apple_clang"):
+        conan_settings(profile, BuildMode.Release)
 
 
 def test_install_asks_conan_for_the_package_and_copies_it_in(demo_package, conan_tool):
