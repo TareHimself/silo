@@ -36,6 +36,8 @@ def toolchain_text(profile: Profile, system_packages: bool = False) -> str:
         "CMAKE_C_COMPILER": profile.compiler.executable.as_posix(),
         "CMAKE_CXX_COMPILER": profile.compiler.cxx.as_posix(),
         "CMAKE_CXX_STANDARD": str(profile.settings.cppstd),
+        # Fedora and openSUSE would otherwise install into lib64
+        "CMAKE_INSTALL_LIBDIR": "lib",
         **ISOLATION,
     }
     runtime = backend.runtime_library(profile)
