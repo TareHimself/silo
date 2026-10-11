@@ -26,6 +26,23 @@ def _is_vs_bundled_tool_dir(path: str) -> bool:
 
 class WindowsBackend(PlatformBackend):
     static_lib_suffixes = (".lib", ".a")
+    runtime_library_variable = "PATH"
+    compiler_environment = (
+        "PATH",
+        "INCLUDE",
+        "LIB",
+        "LIBPATH",
+        "CC",
+        "CXX",
+        "VSINSTALLDIR",
+        "VCINSTALLDIR",
+        "VCToolsInstallDir",
+        "VCToolsVersion",
+        "WindowsSdkDir",
+        "WindowsSDKVersion",
+        "UniversalCRTSdkDir",
+        "UCRTVersion",
+    )
     executable_suffixes = (".exe",)
 
     def detect_compiler(self, arch: Architecture) -> CompilerProfile:
@@ -63,6 +80,9 @@ class WindowsBackend(PlatformBackend):
 
     def static_lib_candidates(self, name: str) -> list[str]:
         return [f"lib/{name}.lib", f"lib/lib{name}.a", f"lib/{name}d.lib"]
+
+    def shared_lib_candidates(self, name: str) -> list[tuple[str, str | None]]:
+        return [(f"bin/{name}.dll", f"lib/{name}.lib"), (f"bin/{name}d.dll", f"lib/{name}d.lib")]
 
     def executable_candidates(self, name: str) -> list[str]:
         return [f"bin/{name}.exe"]

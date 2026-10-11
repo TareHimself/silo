@@ -207,3 +207,159 @@ def test_validate_sees_how_a_dependency_was_resolved(recipes):
     assert graph.nodes["freetype"].package.dependencies["zlib"].overridden
     with pytest.raises(InvalidConfiguration, match=r"freetype: cannot use a fast zlib 1\.0"):
         validate(graph)
+
+
+TOOL_RECIPE = """\
+from silo import InvalidConfiguration, SiloPackage
+
+
+class {cls}(SiloPackage):
+    name = "{name}"
+    version = "1.0"
+    supports_shared = True
+
+    def source(self, src):
+        src.fetch("https://example.com/{name}.tar.gz", sha256="aa")
+
+    def deps(self):
+        {deps}
+"""
+
+
+def write_recipe(root, name: str, deps: str = "pass"):
+    recipe = root / name / "silopkg.py"
+    recipe.parent.mkdir(parents=True)
+    recipe.write_text(TOOL_RECIPE.format(cls=name.title(), name=name, deps=deps), encoding="utf-8")
+
+
+def test_a_tool_is_a_graph_of_its_own_and_is_not_linked(tmp_path):
+    write_recipe(tmp_path, "zlib")
+    write_recipe(tmp_path, "protoc", 'self.dep("../zlib")')
+    write_recipe(tmp_path, "app", 'self.tool("../protoc")\n        self.tool("cmake@4.3")')
+
+    graph = resolve(tmp_path / "app", BuildMode.Release)
+
+    assert list(graph.nodes) == ["app"]
+    assert graph.nodes["app"].tool_names == ["protoc"]
+    tool = graph.nodes["app"].tools[0]
+    assert [node.name for node in tool.build_order()] == ["zlib", "protoc"]
+
+
+def test_a_tool_recipe_can_be_given_options(tmp_path):
+    write_recipe(tmp_path, "protoc")
+    write_recipe(tmp_path, "app", 'self.tool("../protoc", options={"shared": True})')
+
+    graph = resolve(tmp_path / "app", BuildMode.Release)
+
+    tool = graph.nodes["app"].tools[0]
+    assert tool.nodes["protoc"].package.options.shared is True
+
+
+def test_two_recipes_can_use_one_tool_with_different_options(tmp_path):
+    write_recipe(tmp_path, "protoc")
+    write_recipe(tmp_path, "codec", 'self.tool("../protoc", options={"shared": True})')
+    write_recipe(tmp_path, "app", 'self.dep("../codec")\n        self.tool("../protoc")')
+
+    graph = resolve(tmp_path / "app", BuildMode.Release)
+
+    def tool_is_shared(user: str) -> bool:
+        return graph.nodes[user].tools[0].nodes["protoc"].package.options.shared
+
+    assert tool_is_shared("codec") is True
+    assert tool_is_shared("app") is False
+
+
+def test_a_tool_links_its_own_copy_of_what_its_user_also_links(tmp_path):
+    write_recipe(tmp_path, "zlib")
+    write_recipe(tmp_path, "protoc", 'self.dep("../zlib")')
+    recipe = 'self.dep("../zlib", options={"shared": True})\n        self.tool("../protoc")'
+    write_recipe(tmp_path, "app", recipe)
+
+    graph = resolve(tmp_path / "app", BuildMode.Debug, debug_all=True)
+
+    tool = graph.nodes["app"].tools[0]
+    assert graph.nodes["zlib"].package.options.shared is True
+    assert graph.nodes["zlib"].build_type is BuildMode.Debug
+    assert tool.nodes["zlib"].package.options.shared is False
+    assert tool.nodes["zlib"].build_type is BuildMode.Release
+
+
+def test_debug_all_leaves_tools_in_release(tmp_path):
+    write_recipe(tmp_path, "protobuf")
+    write_recipe(tmp_path, "app", 'self.dep("../protobuf")\n        self.tool("../protobuf")')
+
+    graph = resolve(tmp_path / "app", BuildMode.Debug, debug_all=True)
+
+    assert graph.nodes["protobuf"].build_type is BuildMode.Debug
+    tool = graph.nodes["app"].tools[0]
+    assert tool.nodes["protobuf"].build_type is BuildMode.Release
+
+
+def test_the_roots_overrides_and_options_do_not_reach_tools(tmp_path):
+    write_recipe(tmp_path, "protobuf")
+    recipe = (
+        'self.dep("../protobuf")\n        self.tool("../protobuf")\n        '
+        'self.override("protobuf", options={"shared": True})'
+    )
+    write_recipe(tmp_path, "app", recipe)
+
+    graph = resolve(tmp_path / "app", BuildMode.Release)
+
+    assert graph.nodes["protobuf"].package.options.shared is True
+    assert graph.nodes["app"].tools[0].nodes["protobuf"].package.options.shared is False
+
+
+def test_a_tool_that_needs_itself_is_an_error(tmp_path):
+    write_recipe(tmp_path, "codegen", 'self.dep("../runtime")')
+    write_recipe(tmp_path, "runtime", 'self.tool("../codegen")')
+    write_recipe(tmp_path, "app", 'self.tool("../codegen")')
+
+    with pytest.raises(ResolutionError, match="Tool cycle: codegen -> codegen"):
+        resolve(tmp_path / "app", BuildMode.Release)
+
+
+def test_a_tools_recipes_are_validated_too(tmp_path):
+    write_recipe(tmp_path, "protoc")
+    recipe = tmp_path / "protoc" / "silopkg.py"
+    recipe.write_text(
+        recipe.read_text(encoding="utf-8")
+        + "\n\n    def validate(self):\n        raise InvalidConfiguration('no good')\n",
+        encoding="utf-8",
+    )
+    write_recipe(tmp_path, "app", 'self.tool("../protoc")')
+
+    with pytest.raises(InvalidConfiguration, match="protoc: no good"):
+        validate(resolve(tmp_path / "app", BuildMode.Release))
+
+
+def test_asking_a_static_only_recipe_for_a_shared_library_is_an_error(recipes):
+    recipes("zlib")
+    app = recipes("app", deps('self.dep("../zlib", options={"shared": True})'))
+
+    with pytest.raises(ResolutionError, match="zlib was asked for as a shared library"):
+        resolve(app, BuildMode.Release)
+    with pytest.raises(ResolutionError, match="app was asked for as a shared library"):
+        resolve(app, BuildMode.Release, cli_options={"": {"shared": True}})
+
+
+def test_a_recipe_that_supports_shared_can_be_asked_for_it(recipes):
+    recipes("zlib", "    supports_shared = True\n")
+    app = recipes("app", deps('self.dep("../zlib", options={"shared": True})'))
+
+    graph = resolve(app, BuildMode.Release)
+
+    assert graph.nodes["zlib"].package.options.shared is True
+
+
+def test_a_recipe_can_pick_its_dependencies_by_the_target_system(recipes, windows_profile):
+    recipes("wayland")
+    body = (
+        "    def deps(self):\n"
+        '        if self.profile.settings.os.value == "linux":\n'
+        '            self.dep("../wayland")\n'
+    )
+    app = recipes("app", body)
+
+    graph = resolve(app, BuildMode.Release, profile=windows_profile)
+
+    assert list(graph.nodes) == ["app"]

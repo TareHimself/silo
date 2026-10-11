@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from silo.build_profile import Profile
 from silo.dependency import Dependency, OptionValue, Override, ResolvedDependency
 from silo.enums import BuildMode
 from silo.errors import InvalidConfiguration, ResolutionError
@@ -27,8 +28,12 @@ class Node:
     build_type: BuildMode
     overridden: bool
     dependency_names: list[str]
-    # Alias target -> real target, as this package's recipe declared on its dependencies
-    aliases: dict[str, str]
+    # One graph per recipe this one runs during its build, from self.tool("../path")
+    tools: list["Graph"] = field(default_factory=list)
+
+    @property
+    def tool_names(self) -> list[str]:
+        return [tool.root for tool in self.tools]
 
     @property
     def name(self) -> str:
@@ -62,6 +67,7 @@ class Graph:
         return ordered
 
     def transitive_dependencies(self, name: str) -> list[str]:
+        """Everything `name` links, directly or not."""
         found: list[str] = []
         pending = list(self.nodes[name].dependency_names)
         while pending:
@@ -88,7 +94,10 @@ class _Pass:
 
 
 class _Resolver:
-    def __init__(self, root_dir: Path, cli_options: dict[str, OptionValues]) -> None:
+    def __init__(
+        self, root_dir: Path, cli_options: dict[str, OptionValues], profile: Profile | None
+    ) -> None:
+        self.profile = profile
         self.recipe_dirs: dict[str, Path] = {}
         self.recipe_classes: dict[Path, type[SiloPackage]] = {}
         self.root = self._load_recipe(root_dir)
@@ -163,6 +172,7 @@ class _Resolver:
             package = package_cls(
                 get_package_file_path(recipe_dir), self._options_for(name, decisions)
             )
+            package._profile = self.profile
             package.deps()
             packages[name] = package
             if name == self.root:
@@ -191,10 +201,15 @@ class _Resolver:
         )
 
 
-def _check_overrides(result: _Pass, cli_options: dict[str, OptionValues]) -> None:
+def _check_overrides(
+    result: _Pass, cli_options: dict[str, OptionValues], cli_sources: dict[str, Path]
+) -> None:
     for name in cli_options:
         if name not in result.packages:
             raise ResolutionError(f"Options were given for '{name}', which is not in the graph")
+    for name in cli_sources:
+        if name not in result.packages:
+            raise ResolutionError(f"--source names '{name}', which is not in the graph")
     for name, override in result.decisions.overrides.items():
         if name not in result.packages:
             raise ResolutionError(f"The root recipe overrides '{name}', which is not in the graph")
@@ -206,22 +221,54 @@ def _check_overrides(result: _Pass, cli_options: dict[str, OptionValues]) -> Non
             )
 
 
-def _declared_aliases(package: SiloPackage, dependency_names: list[str]) -> dict[str, str]:
-    aliases: dict[str, str] = {}
-    for dependency, dependency_name in zip(package._declared_deps, dependency_names, strict=True):
-        for alias, target in (dependency.aliases or {}).items():
-            if target.split("::")[0] != dependency_name:
-                raise ResolutionError(
-                    f"{package.name} aliases '{alias}' to '{target}', which is not a target of "
-                    f"{dependency_name}. Targets look like {dependency_name}::<component>."
-                )
-            aliases[alias] = target
-    return aliases
+def _check_shared(result: _Pass) -> None:
+    """Every package has the shared option, so a recipe that ignores it must not be asked."""
+    for name, package in result.packages.items():
+        if package.options.shared and not package.supports_shared:
+            raise ResolutionError(
+                f"{name} was asked for as a shared library, but its recipe only builds a "
+                "static one. A recipe that handles self.options.shared says so with "
+                "supports_shared = True."
+            )
 
 
-def _resolve_source(package: SiloPackage, override: Override, root_dir: Path) -> SourceSpec:
-    """The recipe's declared source, or the folder the root recipe pointed it at."""
+def _resolve_tools(package: SiloPackage, tool_chain: tuple[Path, ...]) -> list[Graph]:
+    """Give each tool recipe a graph of its own, in release.
+
+    A tool is run, not linked, so it need not agree with what its user links or with the
+    tools of other recipes. Two recipes may use different versions or options of one tool.
+    """
+    graphs = []
+    for tool in package._declared_tools:
+        # A tool given by name, such as "cmake@4.3", is fetched ready-made
+        if not tool.path:
+            continue
+        tool_dir = (package.recipe_dir / tool.path).resolve()
+        if tool_dir in tool_chain:
+            cycle = [*tool_chain[tool_chain.index(tool_dir) :], tool_dir]
+            names = " -> ".join(folder.name for folder in cycle)
+            raise ResolutionError(f"Tool cycle: {names}. A tool cannot need itself to be built.")
+        graphs.append(
+            resolve(
+                tool_dir,
+                BuildMode.Release,
+                {"": tool.options} if tool.options else None,
+                tool_chain=(*tool_chain, tool_dir),
+                profile=package._profile,
+            )
+        )
+    return graphs
+
+
+def _resolve_source(
+    package: SiloPackage, override: Override, root_dir: Path, cli_source: Path | None
+) -> SourceSpec:
+    """The recipe's declared source, unless the command line or the root recipe replaced it."""
     source = SourceSpec()
+    if cli_source:
+        source.local(str(cli_source))
+        source.snapshot_local(cli_source)
+        return source
     if override.source:
         source.local(override.source)
         source.snapshot_local(root_dir)
@@ -237,14 +284,25 @@ def resolve(
     root_dir: Path,
     root_build_type: BuildMode,
     cli_options: dict[str, OptionValues] | None = None,
+    cli_sources: dict[str, Path] | None = None,
+    debug_all: bool = False,
+    tool_chain: tuple[Path, ...] = (),
+    profile: Profile | None = None,
 ) -> Graph:
     """Load the root recipe and everything it depends on, with overrides and options applied.
 
     `cli_options` maps a package name to its options. The key "" means the root package.
+    `cli_sources` maps a package name to a local folder to build it from, for this run.
+    `debug_all` builds every package in debug, whatever the recipes say. None of these reach
+    tools, which are graphs of their own. `tool_chain` is the tools being resolved around
+    this one, to catch a tool that needs itself. `profile` is what recipes read in deps()
+    and validate().
     """
-    resolver = _Resolver(root_dir, cli_options or {})
+    cli_sources = cli_sources or {}
+    resolver = _Resolver(root_dir, cli_options or {}, profile)
     result = resolver.settle()
-    _check_overrides(result, resolver.cli_options)
+    _check_overrides(result, resolver.cli_options, cli_sources)
+    _check_shared(result)
 
     overrides = result.decisions.overrides
     nodes: dict[str, Node] = {}
@@ -252,16 +310,17 @@ def resolve(
         override = overrides.get(name, Override())
         # Dependencies are release unless the root says otherwise, so prebuilts can be used
         default_build_type = root_build_type if name == resolver.root else BuildMode.Release
-        source = _resolve_source(package, override, result.packages[resolver.root].recipe_dir)
+        root_dir = result.packages[resolver.root].recipe_dir
+        source = _resolve_source(package, override, root_dir, cli_sources.get(name))
         nodes[name] = Node(
             package=package,
             # A source override can say which version the folder it points at really is
             version=(override.source and override.version) or package.version,
             source=source,
-            build_type=override.build_type or default_build_type,
-            overridden=name in overrides or name in resolver.cli_options,
+            build_type=BuildMode.Debug if debug_all else override.build_type or default_build_type,
+            overridden=name in overrides or name in resolver.cli_options or name in cli_sources,
             dependency_names=result.edges[name],
-            aliases=_declared_aliases(package, result.edges[name]),
+            tools=_resolve_tools(package, tool_chain),
         )
 
     for node in nodes.values():
@@ -286,3 +345,5 @@ def validate(graph: Graph) -> None:
             node.package.validate()
         except InvalidConfiguration as error:
             raise InvalidConfiguration(f"{node.name}: {error}") from error
+        for tool in node.tools:
+            validate(tool)

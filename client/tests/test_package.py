@@ -5,6 +5,7 @@ import pytest
 from silo.errors import SiloError
 from silo.package import Component, Package, write_package
 from silo.platform.linux import LinuxBackend
+from silo.platform.macos import MacOSBackend
 from silo.platform.windows import WindowsBackend
 
 
@@ -102,3 +103,80 @@ def test_requires_can_name_one_component_or_a_sibling(tmp_path):
 def test_requiring_something_unknown_is_an_error(tmp_path, reference, message):
     with pytest.raises(SiloError, match=message):
         stored_requires(tmp_path, Component("demo", requires=[reference]), DEPENDENCIES)
+
+
+def test_license_files_are_copied_from_the_source_and_recorded(tmp_path):
+    install = make_install_tree(tmp_path / "install", ["include/demo.h"])
+    source = make_install_tree(tmp_path / "source", ["LICENSE", "docs/FTL.TXT", "main.c"])
+    store_path = tmp_path / "store" / "demo-1.0-abc"
+
+    write_package(
+        Package([Component("demo", headers=["include"])], licenses=["LICENSE", "docs/FTL.TXT"]),
+        install,
+        store_path,
+        "demo",
+        "1.0",
+        "abc",
+        WindowsBackend(),
+        source_dir=source,
+    )
+
+    manifest = json.loads((store_path / "silo" / "package.json").read_text(encoding="utf-8"))
+    assert manifest["license_files"] == ["licenses/LICENSE", "licenses/docs/FTL.TXT"]
+    assert (store_path / "licenses" / "docs" / "FTL.TXT").read_text(encoding="utf-8")
+    assert "licenses/LICENSE" in manifest["files"]
+
+
+def test_a_listed_license_file_missing_from_the_source_is_an_error(tmp_path):
+    install = make_install_tree(tmp_path / "install", ["include/demo.h"])
+    source = make_install_tree(tmp_path / "source", ["main.c"])
+
+    with pytest.raises(SiloError, match="lists the license file 'COPYING'"):
+        write_package(
+            Package([Component("demo", headers=["include"])], licenses=["COPYING"]),
+            install,
+            tmp_path / "store" / "demo",
+            "demo",
+            "1.0",
+            "abc",
+            WindowsBackend(),
+            source_dir=source,
+        )
+    assert not (tmp_path / "store" / "demo").exists()
+
+
+@pytest.mark.parametrize(
+    ("backend", "files", "expected"),
+    [
+        (WindowsBackend(), ["bin/demo.dll", "lib/demo.lib"], ("bin/demo.dll", "lib/demo.lib")),
+        (LinuxBackend(), ["lib/libdemo.so"], ("lib/libdemo.so", None)),
+        (MacOSBackend(), ["lib/libdemo.dylib"], ("lib/libdemo.dylib", None)),
+    ],
+)
+def test_a_bare_shared_library_name_is_found_per_platform(tmp_path, backend, files, expected):
+    install = make_install_tree(tmp_path / "install", files)
+    store_path = tmp_path / "store" / "demo-1.0-abc"
+    package = Package([Component("demo", shared_libs=["demo"])])
+
+    write_package(package, install, store_path, "demo", "1.0", "abc", backend)
+
+    manifest = json.loads((store_path / "silo" / "package.json").read_text(encoding="utf-8"))
+    artifact = manifest["components"]["demo"]["artifacts"][0]
+    assert (artifact["type"], artifact["path"], artifact.get("import")) == ("shared_lib", *expected)
+    assert sorted(manifest["files"]) == sorted(files)
+
+
+def test_a_missing_shared_library_is_reported(tmp_path):
+    install = make_install_tree(tmp_path / "install", ["lib/demo.lib"])
+    package = Package([Component("demo", shared_libs=["demo"])])
+
+    with pytest.raises(RuntimeError, match=r"Shared library 'demo' was not found.*bin/demo\.dll"):
+        write_package(package, install, tmp_path / "out", "demo", "1.0", "abc", WindowsBackend())
+
+
+def test_an_inferred_program_keeps_the_files_installed_beside_it(tmp_path):
+    install = make_install_tree(tmp_path, ["bin/demo.exe", "bin/dependency.dll"])
+
+    package = Package.infer(install, "demo", WindowsBackend())
+
+    assert package.components[0].content == ["bin"]

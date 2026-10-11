@@ -18,10 +18,14 @@ class BuildContext:
     generated_dir: Path
     install_prefix: str
     local_source: bool
+    # Set by `silo sync`: the project's .silo folder, which holds one folder per build type
+    project_generated_dir: Path | None = None
     # Store paths of every package this one depends on, directly or not
     dependency_packages: dict[str, Path] = field(default_factory=dict)
-    # Alias target -> real target, from this recipe's self.dep(..., aliases=)
-    dependency_aliases: dict[str, str] = field(default_factory=dict)
+    # Store paths of the packages this one declared with self.tool()
+    tool_packages: dict[str, Path] = field(default_factory=dict)
+    # Where the output of the recipe's commands goes instead of the terminal
+    log: Path | None = None
 
     @property
     def install_dir(self) -> Path:

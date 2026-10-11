@@ -13,6 +13,7 @@ from silo.versions import matches_prefix, version_key
 UV_TOOL_BIN = {
     "cmake": "cmake/data/bin",
     "ninja": "bin",
+    "conan": "bin",
 }
 
 STORE_SUFFIX = "-uv"

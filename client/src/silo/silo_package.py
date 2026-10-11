@@ -7,6 +7,7 @@ from silo.build_context import BuildContext
 from silo.build_profile import Profile
 from silo.dependency import Dependency, OptionValue, Override, ResolvedDependency
 from silo.enums import BuildMode
+from silo.errors import CommandFailed, SiloError
 from silo.options import Options
 
 if TYPE_CHECKING:
@@ -23,6 +24,8 @@ class SiloPackage(Generic[T]):
     languages: tuple[str, ...] = ("c", "cxx")
     header_only: bool = False
     ignore_settings: tuple[str, ...] = ()
+    # True once the recipe acts on self.options.shared. Asking for shared is an error otherwise.
+    supports_shared: bool = False
     _options_class: type[Options] = Options
 
     def __init_subclass__(cls, **kwargs) -> None:
@@ -39,6 +42,7 @@ class SiloPackage(Generic[T]):
         self._overrides: dict[str, Override] = {}
         self._resolved_deps: dict[str, ResolvedDependency] | None = None
         self._context: BuildContext | None = None
+        self._profile: Profile | None = None
         self._path = path
         self.options: T = options
 
@@ -52,20 +56,15 @@ class SiloPackage(Generic[T]):
 
     # Declarations, called from deps()
 
-    def dep(
-        self,
-        spec: str,
-        options: dict[str, OptionValue] | None = None,
-        aliases: dict[str, str] | None = None,
-    ):
-        """Depend on another recipe.
-
-        `aliases` gives its targets extra names in this recipe's build only, for upstream
-        build files that expect them: aliases={"ZLIB::ZLIB": "zlib::zlib"}.
-        """
-        self._declared_deps.append(Dependency.from_str(spec, options, aliases))
+    def dep(self, spec: str, options: dict[str, OptionValue] | None = None):
+        self._declared_deps.append(Dependency.from_str(spec, options))
 
     def tool(self, spec: str, options: dict[str, OptionValue] | None = None):
+        """Use a program during the build.
+
+        "cmake@4.3" is fetched ready-made. A path such as "../protobuf" is another recipe,
+        built first, whose executables land on the build's PATH and become CMake targets.
+        """
         self._declared_tools.append(Dependency.from_str(spec, options))
 
     def override(
@@ -87,6 +86,14 @@ class SiloPackage(Generic[T]):
         earlier = self._overrides.get(name, Override())
         self._overrides[name] = earlier.merged_with(decision)
 
+    # Available in every hook
+
+    @property
+    def profile(self) -> Profile:
+        if self._profile is not None:
+            return self._profile
+        return self.context.profile
+
     # Available from validate() onward
 
     @property
@@ -95,17 +102,21 @@ class SiloPackage(Generic[T]):
             raise RuntimeError("Dependencies are only resolved from validate() onward")
         return self._resolved_deps
 
-    # Available in patch(), build() and package()
+    # Available in patch(), generate(), build() and package()
 
     @property
     def context(self) -> BuildContext:
         if self._context is None:
-            raise RuntimeError("Build details are only available in patch(), build() and package()")
+            raise RuntimeError("Build details are only available from patch() onward")
         return self._context
 
     @property
-    def profile(self) -> Profile:
-        return self.context.profile
+    def build_type(self) -> BuildMode:
+        return self.context.build_type
+
+    @property
+    def is_debug(self) -> bool:
+        return self.context.build_type is BuildMode.Debug
 
     @property
     def env(self) -> dict[str, str]:
@@ -137,10 +148,34 @@ class SiloPackage(Generic[T]):
         # Windows would look the program up on silo's own PATH, not the build's
         program = shutil.which(str(args[0]), path=full_env["PATH"])
         if program is None:
-            raise RuntimeError(
-                f"'{args[0]}' is not a declared tool, so it is not on the build PATH"
+            raise SiloError(f"'{args[0]}' is not a declared tool, so it is not on the build PATH")
+        command = [program, *map(str, args[1:])]
+        command_line = subprocess.list2cmdline(command)
+        log = self.context.log
+        if log is None:
+            result = subprocess.run(command, cwd=cwd, env=full_env, check=False)
+            output = "above"
+        else:
+            with log.open("ab") as log_file:
+                log_file.write(f"$ {command_line}\n".encode())
+                log_file.flush()
+                result = subprocess.run(
+                    command,
+                    cwd=cwd,
+                    env=full_env,
+                    check=False,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                )
+            output = f"in {log}"
+        if result.returncode != 0:
+            raise CommandFailed(
+                f"{self.name}: the command failed with exit code {result.returncode}. "
+                f"Its output is {output}.\n  {command_line}",
+                command_line,
+                result.returncode,
             )
-        subprocess.run([program, *map(str, args[1:])], cwd=cwd, env=full_env, check=True)
 
     # Hooks a recipe implements
 
@@ -157,7 +192,11 @@ class SiloPackage(Generic[T]):
         pass
 
     def generate(self):
-        pass
+        """Write the files a build system needs, such as a CMake toolchain file.
+
+        Runs before build(). `silo sync` runs it on its own, once per build type, and the
+        files land in the project's .silo/debug and .silo/release folders.
+        """
 
     def build(self):
         pass

@@ -1,18 +1,11 @@
+from typing import Any
+
 from silo.enums import BuildMode
-from silo.platform import backend_for
+from silo.errors import SiloError
 from silo.silo_package import SiloPackage
-from silo.tools.cmake.cmake_deps import write_dependency_configs
+from silo.tools.cmake.cmake_generator import CACHE_FILE, TOOLCHAIN_FILE
 
 CacheValue = str | bool | int
-
-# Make find_package() see silo's generated configs and nothing registered on the machine.
-# PREFER_CONFIG matters because CMake otherwise tries its own FindZLIB-style modules first.
-ISOLATION: dict[str, CacheValue] = {
-    "CMAKE_FIND_USE_PACKAGE_REGISTRY": False,
-    "CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY": False,
-    "CMAKE_FIND_USE_CMAKE_SYSTEM_PATH": False,
-    "CMAKE_FIND_PACKAGE_PREFER_CONFIG": True,
-}
 
 
 def _cache_argument(key: str, value: CacheValue) -> str:
@@ -22,36 +15,27 @@ def _cache_argument(key: str, value: CacheValue) -> str:
 
 
 class CMakeBuild:
-    def __init__(self, package: SiloPackage) -> None:
+    def __init__(self, package: SiloPackage[Any]) -> None:
         self.package = package
 
     def configure(self, **cache: CacheValue) -> None:
         context = self.package.context
-        profile = context.profile
-        backend = backend_for(profile.settings.os)
-        is_debug = context.build_type is BuildMode.Debug
-        compiler = profile.compiler.executable.as_posix()
-
+        toolchain = context.generated_dir / TOOLCHAIN_FILE
+        if not toolchain.is_file():
+            raise SiloError(
+                f"{self.package.name} has no CMake toolchain file. "
+                "Call CMakeGenerator(self).generate() in the recipe's generate()."
+            )
         entries: dict[str, CacheValue] = {
-            "CMAKE_BUILD_TYPE": "Debug" if is_debug else "Release",
+            "CMAKE_BUILD_TYPE": "Debug" if context.build_type is BuildMode.Debug else "Release",
             "CMAKE_INSTALL_PREFIX": context.install_prefix,
-            "CMAKE_C_COMPILER": compiler,
-            "CMAKE_CXX_COMPILER": compiler,
-            **ISOLATION,
-            **backend.cmake_cache_entries(profile),
+            **cache,
         }
-        if is_debug and not self.package.is_c_only:
-            defines = backend.hardening_defines(profile)
-            # _INIT adds to CMake's default flags, where CMAKE_CXX_FLAGS would replace them
-            entries["CMAKE_CXX_FLAGS_INIT"] = " ".join(f"-D{define}" for define in defines)
-        configs_dir = context.generated_dir / "cmake"
-        write_dependency_configs(
-            context.dependency_packages, configs_dir, context.dependency_aliases
-        )
-        entries["CMAKE_PREFIX_PATH"] = configs_dir.as_posix()
-        entries |= cache
+        cache_file = context.generated_dir / CACHE_FILE
         self.package.run(
             ["cmake", "-S", context.source_dir, "-B", context.build_dir, "-G", "Ninja"]
+            + ["--toolchain", toolchain]
+            + (["-C", cache_file] if cache_file.is_file() else [])
             + [_cache_argument(key, value) for key, value in entries.items()]
         )
 

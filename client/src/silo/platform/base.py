@@ -9,6 +9,10 @@ class PlatformBackend(ABC):
     """Everything that differs per operating system. Core code never branches on the OS."""
 
     static_lib_suffixes: tuple[str, ...]
+    # The variables of build_env() a compiler needs, for tools that run it outside silo
+    compiler_environment: tuple[str, ...]
+    # The variable the system searches for shared libraries when a program starts
+    runtime_library_variable: str
     executable_suffixes: tuple[str, ...]
 
     @abstractmethod
@@ -21,6 +25,10 @@ class PlatformBackend(ABC):
     @abstractmethod
     def static_lib_candidates(self, name: str) -> list[str]:
         """Install-relative paths a library called `name` could have, most likely first."""
+
+    @abstractmethod
+    def shared_lib_candidates(self, name: str) -> list[tuple[str, str | None]]:
+        """Like static_lib_candidates, each paired with its import library where there is one."""
 
     @abstractmethod
     def executable_candidates(self, name: str) -> list[str]:

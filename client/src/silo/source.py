@@ -1,13 +1,18 @@
 import hashlib
+import os
+import re
 import shutil
 import subprocess
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from silo.errors import SiloError
-from silo.git_snapshot import snapshot_tree
-from silo.paths import cache_dir
+from silo.git_snapshot import fetch_commit, snapshot_tree
+from silo.paths import downloads_dir
+
+FULL_COMMIT = re.compile(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")
 
 
 @dataclass
@@ -17,6 +22,8 @@ class SourceSpec:
     kind: str | None = None
     url: str | None = None
     sha256: str | None = None
+    commit: str | None = None
+    submodules: bool | tuple[str, ...] = False
     local_path: str | None = None
     local_dir: Path | None = None
     tree: str | None = None
@@ -26,8 +33,32 @@ class SourceSpec:
         self.url = url
         self.sha256 = sha256.lower()
 
-    def git(self, url: str, tag: str) -> None:
-        raise NotImplementedError("src.git is not implemented yet")
+    def git(
+        self,
+        url: str,
+        commit: str | None = None,
+        tag: str | None = None,
+        submodules: bool | Sequence[str] = False,
+    ) -> None:
+        """A git repository at one exact commit, given as its full hash.
+
+        `submodules` is True for all of them, or a list of the paths to fetch.
+        """
+        if tag is not None or commit is None:
+            raise SiloError(
+                "src.git needs commit=<full hash>. A tag can move, and pinning one needs the "
+                "lockfile, which is not built yet."
+            )
+        if not FULL_COMMIT.fullmatch(commit):
+            raise SiloError(f"src.git needs the full commit hash, not {commit!r}")
+        self.kind = "git"
+        self.url = url
+        self.commit = commit.lower()
+        self.submodules = submodules if isinstance(submodules, bool) else tuple(submodules)
+
+    def empty(self) -> None:
+        """No source at all, for a recipe whose build fetches a finished package."""
+        self.kind = "empty"
 
     def local(self, path: str = ".") -> None:
         """A folder on disk, relative to the recipe. It must be inside a git repository."""
@@ -48,6 +79,13 @@ class SourceSpec:
     def id(self) -> str:
         if self.kind == "fetched":
             return f"fetched:{self.sha256}"
+        if self.kind == "git":
+            if not self.submodules:
+                return f"fetched:{self.commit}"
+            chosen = "all" if self.submodules is True else ",".join(sorted(self.submodules))
+            return f"fetched:{self.commit}+submodules:{chosen}"
+        if self.kind == "empty":
+            return "empty"
         if self.kind == "local" and self.tree:
             return f"local:{self.tree}"
         raise SiloError("The recipe's source() declared no source")
@@ -61,19 +99,43 @@ class SourceTree:
         self.recipe_dir = recipe_dir
 
     def apply(self, patch: str) -> None:
+        """Apply a patch file, given relative to the recipe."""
         patch_file = (self.recipe_dir / patch).resolve()
-        subprocess.run(
+        if not patch_file.is_file():
+            raise SiloError(f"Patch file not found: {patch_file}")
+        # Without the ceiling, git would treat an enclosing repository as the tree to patch
+        env = os.environ | {"GIT_CEILING_DIRECTORIES": str(self.root.parent)}
+        result = subprocess.run(
             ["git", "apply", "--whitespace=nowarn", str(patch_file)],
             cwd=self.root,
-            check=True,
+            env=env,
+            capture_output=True,
+            encoding="utf-8",
+            check=False,
         )
+        if result.returncode != 0:
+            reason = result.stderr.strip()
+            raise SiloError(f"{patch} does not apply to {self.root}: {reason}")
+
+    def replace(self, path: str, old: str, new: str) -> None:
+        """Swap one piece of text in a file, for changes too small to be worth a patch file."""
+        target = self.root / path
+        if not target.is_file():
+            raise SiloError(f"Cannot edit '{path}': it is not in {self.root}")
+        text = target.read_text(encoding="utf-8")
+        if old not in text:
+            raise SiloError(f"Cannot edit '{path}': it does not contain {old!r}")
+        target.write_text(text.replace(old, new), encoding="utf-8", newline="")
 
     def remove(self, path: str) -> None:
+        """Delete a file or folder, given relative to the source root."""
         target = self.root / path
         if target.is_dir():
             shutil.rmtree(target)
-        else:
+        elif target.is_file():
             target.unlink()
+        else:
+            raise SiloError(f"Cannot remove '{path}': it is not in {self.root}")
 
 
 def sha256_of(path: Path) -> str:
@@ -83,7 +145,7 @@ def sha256_of(path: Path) -> str:
 
 def download(url: str, sha256: str) -> Path:
     file_name = url.rsplit("/", 1)[-1]
-    archive = cache_dir() / "downloads" / f"{sha256[:16]}-{file_name}"
+    archive = downloads_dir() / f"{sha256[:16]}-{file_name}"
     if archive.exists():
         return archive
 
@@ -109,8 +171,18 @@ def _unpacked_root(unpacked: Path) -> Path:
     return unpacked
 
 
-def unpack_fetched(spec: SourceSpec, dest: Path) -> None:
-    assert spec.url is not None and spec.sha256 is not None
+def fetch_source(spec: SourceSpec, dest: Path) -> None:
+    """Put a tarball or git source into `dest`. Local source goes through a git snapshot."""
+    if spec.kind == "empty":
+        dest.mkdir(parents=True)
+        return
+    assert spec.url is not None
+    if spec.kind == "git":
+        assert spec.commit is not None
+        fetch_commit(spec.url, spec.commit, dest, spec.submodules)
+        return
+
+    assert spec.sha256 is not None
     archive = download(spec.url, spec.sha256)
 
     unpacked = dest.with_name(dest.name + ".unpack")

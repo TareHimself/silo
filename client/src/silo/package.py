@@ -9,6 +9,7 @@ import xxhash
 from silo.errors import SiloError
 from silo.platform.base import PlatformBackend
 from silo.source import sha256_of
+from silo.verifier import verify_no_install_prefix
 
 SCHEMA = 1
 
@@ -28,23 +29,27 @@ class Requirement:
 @dataclass
 class Component:
     name: str
-    headers: Sequence[str] = ()
-    static_libs: Sequence[str] = ()
-    shared_libs: Sequence[SharedLib] = ()
-    executables: Sequence[str] = ()
-    content: Sequence[str] = ()
+    headers: list[str] = field(default_factory=list)
+    static_libs: list[str] = field(default_factory=list)
+    # A bare name such as "zlib" is looked up the way static_libs are
+    shared_libs: list[str | SharedLib] = field(default_factory=list)
+    executables: list[str] = field(default_factory=list)
+    content: list[str] = field(default_factory=list)
     # What consumers must also link. "zlib" is a whole package and "zlib::zlib" one of its
     # components; a component of this package is "<package>::<name>". Nothing is implied.
-    requires: Sequence[str | Requirement] = ()
-    defines: Sequence[str] = ()
-    system_libs: Sequence[str] = ()
-    build_modules: Sequence[str] = ()
+    requires: list[str | Requirement] = field(default_factory=list)
+    defines: list[str] = field(default_factory=list)
+    system_libs: list[str] = field(default_factory=list)
+    build_modules: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
 class Package:
-    components: list[Component]
+    components: list[Component] = field(default_factory=list)
+    # Optional license files. Unlike everything else here, these are paths in the source
+    # tree, because builds rarely install them. They land in the package's licenses/ folder.
+    licenses: list[str] = field(default_factory=list)
 
     @classmethod
     def infer(cls, install_dir: Path, name: str, backend: PlatformBackend) -> "Package":
@@ -64,6 +69,9 @@ class Package:
             executables=[f"bin/{executable.name}" for executable in executables],
             content=["share"] if (install_dir / "share").is_dir() else [],
         )
+        if executables:
+            # A program keeps what its build installed beside it, such as the DLLs it loads
+            component.content.append("bin")
         return cls(components=[component])
 
 
@@ -89,6 +97,15 @@ def _find_file(install_dir: Path, name: str, candidates: Sequence[str] = ()) -> 
         if (install_dir / relative).is_file():
             return relative
     raise RuntimeError(f"'{name}' was not found in {install_dir} (tried {', '.join(tried)})")
+
+
+def _find_shared_lib(install_dir: Path, name: str, backend: PlatformBackend) -> SharedLib:
+    candidates = backend.shared_lib_candidates(name)
+    for path, import_lib in candidates:
+        if (install_dir / path).is_file():
+            return SharedLib(path, import_lib)
+    tried = ", ".join(path for path, _ in candidates)
+    raise RuntimeError(f"Shared library '{name}' was not found in {install_dir} (tried {tried})")
 
 
 def _find_directory(install_dir: Path, relative: str) -> str:
@@ -120,7 +137,12 @@ def _component_artifacts(
     for name in component.static_libs:
         relative = _find_file(install_dir, name, backend.static_lib_candidates(name))
         artifacts.append(_file_artifact("static_lib", install_dir, relative))
-    for shared_lib in component.shared_libs:
+    for declared in component.shared_libs:
+        shared_lib = (
+            _find_shared_lib(install_dir, declared, backend)
+            if isinstance(declared, str)
+            else declared
+        )
         artifact = _file_artifact(
             "shared_lib", install_dir, _find_file(install_dir, shared_lib.path)
         )
@@ -145,6 +167,18 @@ def stored_components(package_dir: Path) -> list[str]:
     """The component names of a package already in the store."""
     manifest = json.loads((package_dir / "silo" / "package.json").read_text(encoding="utf-8"))
     return list(manifest["components"])
+
+
+def artifact_dirs(package_dir: Path, *kinds: str) -> list[Path]:
+    """The folders of a stored package that hold its artifacts of these kinds."""
+    manifest = json.loads((package_dir / "silo" / "package.json").read_text(encoding="utf-8"))
+    found: list[Path] = []
+    for component in manifest["components"].values():
+        for artifact in component["artifacts"]:
+            folder = (package_dir / artifact["path"]).parent
+            if artifact["type"] in kinds and folder not in found:
+                found.append(folder)
+    return found
 
 
 def _targets_of(reference: str, known: dict[str, list[str]], required_by: str) -> list[str]:
@@ -214,6 +248,26 @@ def _file_hashes(package_dir: Path) -> dict[str, str]:
     }
 
 
+def _copy_licenses(
+    licenses: Sequence[str], source_dir: Path | None, package_dir: Path, package_name: str
+) -> list[str]:
+    stored = []
+    for relative in licenses:
+        if source_dir is None:
+            raise SiloError(f"{package_name} lists license files, but no source folder was given")
+        source = source_dir / relative
+        if not source.is_file():
+            raise SiloError(
+                f"{package_name} lists the license file '{relative}', "
+                f"which is not in its source ({source_dir})"
+            )
+        target = package_dir / "licenses" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        stored.append(target.relative_to(package_dir).as_posix())
+    return stored
+
+
 def write_package(
     package: Package,
     install_dir: Path,
@@ -223,10 +277,13 @@ def write_package(
     build_id: str,
     backend: PlatformBackend,
     dependency_components: dict[str, list[str]] | None = None,
+    install_prefix: str | None = None,
+    source_dir: Path | None = None,
 ) -> None:
     """Copy only what the components list into the store and write silo/package.json.
 
-    `dependency_components` maps each direct dependency to its component names.
+    `dependency_components` maps each direct dependency to its component names. With
+    `install_prefix` given, a package that has that prefix compiled in is rejected.
     """
     own_components = [component.name for component in package.components]
     staging = store_path.with_name(f".tmp-{store_path.name}")
@@ -244,11 +301,20 @@ def write_package(
         requires = _resolved_requires(component, name, own_components, dependency_components or {})
         components[component.name] = _component_manifest(component, artifacts, requires)
 
+    try:
+        license_files = _copy_licenses(package.licenses, source_dir, staging, name)
+        if install_prefix:
+            verify_no_install_prefix(staging, name, install_prefix)
+    except SiloError:
+        shutil.rmtree(staging)
+        raise
+
     manifest = {
         "schema": SCHEMA,
         "name": name,
         "version": version,
         "id": build_id,
+        "license_files": license_files,
         "components": components,
         "files": _file_hashes(staging),
     }

@@ -9,6 +9,13 @@ class UnixBackend(PlatformBackend):
     """File naming shared by Linux and macOS. Detection and build envs are not written yet."""
 
     name: str
+    shared_lib_suffix = ".so"
+    runtime_library_variable = "LD_LIBRARY_PATH"
+
+    @property
+    def compiler_environment(self) -> tuple[str, ...]:
+        return ("PATH", "CC", "CXX", self.runtime_library_variable)
+
     static_lib_suffixes = (".a",)
     executable_suffixes = ("",)
 
@@ -20,6 +27,9 @@ class UnixBackend(PlatformBackend):
 
     def static_lib_candidates(self, name: str) -> list[str]:
         return [f"lib/lib{name}.a"]
+
+    def shared_lib_candidates(self, name: str) -> list[tuple[str, str | None]]:
+        return [(f"lib/lib{name}{self.shared_lib_suffix}", None)]
 
     def executable_candidates(self, name: str) -> list[str]:
         return [f"bin/{name}"]
