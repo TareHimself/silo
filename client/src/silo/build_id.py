@@ -63,7 +63,7 @@ def relevant_settings(package: SiloPackage) -> list[str]:
 def compiler_fingerprint(profile: Profile) -> str:
     """Coarse on purpose, so a prebuilt matches across patch releases of a compiler."""
     compiler = profile.compiler
-    parts = [compiler.kind.value, compiler.version.split(".")[0], compiler.target]
+    parts = [compiler.kind.value, compiler.generation, compiler.target]
     if compiler.sdk:
         parts.append(compiler.sdk.split(".")[0])
     return "-".join(parts)

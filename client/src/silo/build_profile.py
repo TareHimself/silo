@@ -28,6 +28,19 @@ class CompilerProfile(BaseModel):
     def cxx(self) -> Path:
         return self.cxx_executable or self.executable
 
+    @property
+    def generation(self) -> str:
+        """The part of the version that decides which binaries can be mixed.
+
+        For gcc and clang it is the major version. Every MSVC since 2015 is toolset 14, so
+        there it is Microsoft's compiler number: toolsets 14.40 to 14.49 are 194.
+        """
+        major, _, rest = self.version.partition(".")
+        if self.kind is not Compiler.MSVC:
+            return major
+        minor = int(rest.split(".")[0] or 0)
+        return str(int(major) * 10 + 50 + minor // 10)
+
 
 class Profile(BaseModel):
     """What a machine can build with. Project decisions (options, build type) live elsewhere."""

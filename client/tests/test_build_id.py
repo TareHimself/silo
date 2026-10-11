@@ -25,7 +25,20 @@ def test_header_only_ignores_binary_settings(load_demo_recipe):
 
 
 def test_compiler_fingerprint_is_coarse(windows_profile):
-    assert compiler_fingerprint(windows_profile) == "msvc-14-x86_64-pc-windows-msvc-10"
+    assert compiler_fingerprint(windows_profile) == "msvc-195-x86_64-pc-windows-msvc-10"
+
+
+def test_msvc_toolsets_of_one_generation_share_a_fingerprint(windows_profile):
+    def fingerprint(version: str) -> str:
+        compiler = windows_profile.compiler.model_copy(update={"version": version})
+        return compiler_fingerprint(windows_profile.model_copy(update={"compiler": compiler}))
+
+    assert fingerprint("14.40.33807") == fingerprint("14.44.35207")
+    assert fingerprint("14.44.35207") != fingerprint("14.51.36231")
+
+
+def test_gcc_is_fingerprinted_by_its_major_version(linux_profile):
+    assert compiler_fingerprint(linux_profile) == "gcc-13-x86_64-linux-gnu"
 
 
 def test_build_id_ignores_compiler_patch_version(load_demo_recipe, windows_profile):

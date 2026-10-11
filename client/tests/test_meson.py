@@ -6,27 +6,12 @@ from pathlib import Path
 import pytest
 
 from silo.build_context import BuildContext
-from silo.build_profile import CompilerProfile, Profile, Settings
-from silo.enums import Architecture, BuildMode, Compiler, Platform
+from silo.enums import BuildMode
 from silo.errors import SiloError
 from silo.platform.linux import LinuxBackend
 from silo.tools.cmake.cmake_generator import toolchain_text
 from silo.tools.meson import MesonBuild, MesonGenerator
 from silo.tools.pkgconfig.pkg_config_deps import pc_text, write_pc_files
-
-
-@pytest.fixture
-def linux_profile() -> Profile:
-    return Profile(
-        settings=Settings(os=Platform.Linux, arch=Architecture.X86_64),
-        compiler=CompilerProfile(
-            kind=Compiler.GCC,
-            executable=Path("/usr/bin/gcc"),
-            cxx_executable=Path("/usr/bin/g++"),
-            version="13.3.0",
-            target="x86_64-linux-gnu",
-        ),
-    )
 
 
 @pytest.fixture

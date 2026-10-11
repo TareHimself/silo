@@ -48,6 +48,20 @@ def windows_profile() -> Profile:
 
 
 @pytest.fixture
+def linux_profile() -> Profile:
+    return Profile(
+        settings=Settings(os=Platform.Linux, arch=Architecture.X86_64),
+        compiler=CompilerProfile(
+            kind=Compiler.GCC,
+            executable=Path("/usr/bin/gcc"),
+            cxx_executable=Path("/usr/bin/g++"),
+            version="13.3.0",
+            target="x86_64-linux-gnu",
+        ),
+    )
+
+
+@pytest.fixture
 def load_demo_recipe(tmp_path):
     def load(extra_class_body: str = "") -> SiloPackage:
         recipe_dir = tmp_path / "demo"
