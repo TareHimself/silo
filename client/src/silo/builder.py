@@ -95,6 +95,9 @@ def build_environment(
     for tool_package in dict.fromkeys([*inputs.tools.values(), *inputs.carried_programs]):
         tool_dirs += artifact_dirs(tool_package, "executable")
     env = backend.build_env(profile, tool_dirs, tmp)
+    # On Windows pkgconf otherwise works the prefix out from where a .pc file is. For the
+    # files PkgConfigDeps writes that is the build folder, not the package they describe.
+    env["PKG_CONFIG_DONT_DEFINE_PREFIX"] = "1"
 
     library_dirs: list[Path] = []
     for package_dir in [*inputs.dependencies.values(), *inputs.tool_runtime]:
