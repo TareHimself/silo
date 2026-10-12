@@ -1,4 +1,4 @@
-from silo import InvalidConfiguration, SiloPackage
+from silo import SiloPackage
 from silo.enums import Platform
 from silo.tools.cmake import CMakeBuild, CMakeDeps, CMakeGenerator
 
@@ -9,6 +9,7 @@ class Decor(SiloPackage):
     name = "decor"
     version = "0.1.0"
     languages = ("c",)
+    platforms = (Platform.Linux,)
 
     def source(self, src):
         src.local(".")
@@ -17,10 +18,6 @@ class Decor(SiloPackage):
         self.dep("libdecor@0.2.2")
         self.dep("wayland@1.22.0")
         self.tool("cmake@4.3")
-
-    def validate(self):
-        if self.profile.settings.os is not Platform.Linux:
-            raise InvalidConfiguration("decor needs Wayland, so it only builds on Linux")
 
     def generate(self):
         CMakeDeps(self).generate()

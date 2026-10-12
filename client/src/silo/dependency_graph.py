@@ -399,9 +399,22 @@ def resolve(
     return Graph(resolver.root, nodes)
 
 
+def _check_platform(node: Node) -> None:
+    package = node.package
+    if not package.platforms or package._profile is None:
+        return
+    platform = package._profile.settings.os
+    if platform not in package.platforms:
+        builds_on = ", ".join(allowed.value for allowed in package.platforms)
+        raise InvalidConfiguration(
+            f"{node.name}: builds on {builds_on} only, and the profile is for {platform.value}"
+        )
+
+
 def validate(graph: Graph) -> None:
     """Give every recipe the chance to reject the resolved graph, before anything builds."""
     for node in graph.nodes.values():
+        _check_platform(node)
         try:
             node.package.validate()
         except InvalidConfiguration as error:

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Generic, TypeVar, get_args, get_origin
 from silo.build_context import BuildContext
 from silo.build_profile import Profile
 from silo.dependency import Dependency, OptionValue, Override, ResolvedDependency
-from silo.enums import BuildMode
+from silo.enums import BuildMode, Platform
 from silo.errors import CommandFailed, SiloError
 from silo.options import Options
 
@@ -24,6 +24,8 @@ class SiloPackage(Generic[T]):
     languages: tuple[str, ...] = ("c", "cxx")
     header_only: bool = False
     ignore_settings: tuple[str, ...] = ()
+    # The platforms the recipe builds on. Empty means every one.
+    platforms: tuple[Platform, ...] = ()
     # True once the recipe acts on self.options.shared. Asking for shared is an error otherwise.
     supports_shared: bool = False
     _options_class: type[Options] = Options
