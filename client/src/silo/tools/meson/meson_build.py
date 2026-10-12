@@ -1,12 +1,17 @@
+import json
 import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
 from silo.errors import SiloError
+from silo.platform import backend_for
 from silo.silo_package import SiloPackage
 from silo.tools.meson.meson_generator import NATIVE_FILE
 from silo.tools.pkgconfig.pkg_config_deps import PC_DIR
+
+# The kinds of target, in Meson's words, that name the libraries they load
+LINKED_TARGETS = ("executable", "shared library", "shared module")
 
 
 class MesonBuild:
@@ -49,3 +54,17 @@ class MesonBuild:
         self._meson(
             "install", "-C", context.build_dir, "--no-rebuild", "--destdir", context.stage_dir
         )
+        backend = backend_for(context.profile.settings.os)
+        backend.use_run_path(self._installed_binaries(), context.install_prefix)
+
+    def _installed_binaries(self) -> list[Path]:
+        """The programs and shared libraries Meson built, where the install staged them."""
+        context = self.package.context
+        described = context.build_dir / "meson-info" / "intro-targets.json"
+        return [
+            context.stage_dir / Path(file).relative_to(Path(file).anchor)
+            for target in json.loads(described.read_text(encoding="utf-8"))
+            if target["installed"] and target["type"] in LINKED_TARGETS
+            for file in target["install_filename"]
+            if file
+        ]

@@ -50,3 +50,7 @@ class PlatformBackend(ABC):
     def runtime_library(self, profile: Profile) -> RuntimeLibrary | None:
         """The runtime every build links, or None where the compiler has only one."""
         return None
+
+    def use_run_path(self, binaries: list[Path], prefix: str) -> None:
+        """Make `binaries` find each other by run path, where they say `prefix`."""
+        return None

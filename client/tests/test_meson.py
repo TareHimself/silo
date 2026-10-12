@@ -189,3 +189,27 @@ def test_a_linux_build_gets_both_compilers_and_position_independent_code(linux_p
     assert env["PATH"].split(os.pathsep)[0] == str(Path("/tools/cmake"))
     assert 'set(CMAKE_CXX_COMPILER "/usr/bin/g++")' in toolchain
     assert 'set(CMAKE_POSITION_INDEPENDENT_CODE "ON")' in toolchain
+
+
+def test_install_hands_over_the_programs_and_shared_libraries_it_staged(
+    demo_package, tool_bin, monkeypatch
+):
+    package = demo_package(str(tool_bin("meson")))
+    targets = [
+        {"type": "shared library", "installed": True, "install_filename": ["/p/lib/libz.so.1"]},
+        {"type": "executable", "installed": True, "install_filename": ["/p/bin/demo"]},
+        {"type": "static library", "installed": True, "install_filename": ["/p/lib/libz.a"]},
+        {"type": "executable", "installed": False, "install_filename": ["/p/bin/test"]},
+    ]
+    described = package.context.build_dir / "meson-info" / "intro-targets.json"
+    described.parent.mkdir(parents=True)
+    described.write_text(json.dumps(targets), encoding="utf-8")
+    handed_over = []
+    monkeypatch.setattr(
+        LinuxBackend, "use_run_path", lambda self, binaries, prefix: handed_over.append(binaries)
+    )
+
+    MesonBuild(package).install()
+
+    stage = package.context.stage_dir
+    assert handed_over == [[stage / "p/lib/libz.so.1", stage / "p/bin/demo"]]

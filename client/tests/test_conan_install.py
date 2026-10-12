@@ -87,12 +87,13 @@ def test_clang_on_linux_is_described_too(linux_profile):
     assert settings["compiler.version"] == "18"
 
 
-def test_a_compiler_conan_is_not_told_about_is_refused(linux_profile):
-    compiler = linux_profile.compiler.model_copy(update={"kind": Compiler.AppleClang})
-    profile = linux_profile.model_copy(update={"compiler": compiler})
+def test_apple_clang_links_its_own_cpp_library(macos_profile):
+    settings = conan_settings(macos_profile, BuildMode.Release)
 
-    with pytest.raises(SiloError, match="apple_clang"):
-        conan_settings(profile, BuildMode.Release)
+    assert settings["os"] == "Macos"
+    assert settings["compiler"] == "apple-clang"
+    assert settings["compiler.version"] == "21"
+    assert settings["compiler.libcxx"] == "libc++"
 
 
 def test_install_asks_conan_for_the_package_and_copies_it_in(demo_package, conan_tool):

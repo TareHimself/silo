@@ -24,9 +24,14 @@ CONAN_ARCH = {
 # compiler.runtime and compiler.runtime_type
 CONAN_RUNTIME = {RuntimeLibrary.DynamicRelease: ("dynamic", "Release")}
 
-CONAN_COMPILER = {Compiler.GCC: "gcc", Compiler.Clang: "clang"}
 # The GNU C++ library with the C++11 ABI, which gcc and clang both use on Linux
 GNU_LIBCXX = "libstdc++11"
+# Conan's name for a compiler, and the C++ library it links unless the profile says
+CONAN_COMPILER = {
+    Compiler.GCC: ("gcc", GNU_LIBCXX),
+    Compiler.Clang: ("clang", GNU_LIBCXX),
+    Compiler.AppleClang: ("apple-clang", "libc++"),
+}
 
 OptionValue = str | bool | int
 
@@ -42,13 +47,12 @@ def _compiler_settings(profile: Profile) -> dict[str, str]:
             "compiler.runtime": runtime,
             "compiler.runtime_type": runtime_type,
         }
-    if compiler.kind in CONAN_COMPILER:
-        return {
-            "compiler": CONAN_COMPILER[compiler.kind],
-            "compiler.version": compiler.generation,
-            "compiler.libcxx": profile.settings.libcxx or GNU_LIBCXX,
-        }
-    raise SiloError(f"ConanInstall cannot describe {compiler.kind.value} to Conan yet")
+    name, libcxx = CONAN_COMPILER[compiler.kind]
+    return {
+        "compiler": name,
+        "compiler.version": compiler.generation,
+        "compiler.libcxx": profile.settings.libcxx or libcxx,
+    }
 
 
 def conan_settings(profile: Profile, build_type: BuildMode) -> dict[str, str]:
