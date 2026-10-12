@@ -15,6 +15,7 @@ import xxhash
 
 from silo.errors import SiloError
 from silo.paths import git_sources_dir, snapshots_dir
+from silo.retry import retrying
 
 # Windows stops at 260 characters in a path unless git is told otherwise, and a store in a
 # deep folder plus a source with long file names goes past that. Ignored elsewhere.
@@ -177,7 +178,11 @@ def fetch_commit(
         repo.mkdir(parents=True, exist_ok=True)
         _plain_git(repo, "init", "--bare", "--quiet")
     if not _has_object(repo, commit + "^{commit}"):
-        _plain_git(repo, "fetch", "--quiet", "--depth", "1", url, commit)
+        retrying(
+            f"Fetching {url}",
+            lambda: _plain_git(repo, "fetch", "--quiet", "--depth", "1", url, commit),
+            gives_up=lambda error: not isinstance(error, SiloError),
+        )
 
     dest.mkdir(parents=True, exist_ok=True)
     index_file = dest.with_name(dest.name + ".index")
