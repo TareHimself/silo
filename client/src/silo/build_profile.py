@@ -10,7 +10,7 @@ from silo.enums import Architecture, Compiler, Platform
 class Settings(BaseModel):
     os: Platform
     arch: Architecture
-    cppstd: int = 17
+    cppstd: int = 20
     libcxx: str | None = None
 
 

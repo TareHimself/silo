@@ -24,6 +24,9 @@ class SiloPackage(Generic[T]):
     languages: tuple[str, ...] = ("c", "cxx")
     header_only: bool = False
     ignore_settings: tuple[str, ...] = ()
+    # The oldest C++ standard the package compiles with, in its sources or its headers.
+    # A profile below it is refused: one standard is used for every package of a graph.
+    min_cppstd: int | None = None
     # The platforms the recipe builds on. Empty means every one.
     platforms: tuple[Platform, ...] = ()
     # True once the recipe acts on self.options.shared. Asking for shared is an error otherwise.

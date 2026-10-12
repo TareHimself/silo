@@ -231,6 +231,29 @@ def test_whatever_links_such_a_recipe_is_refused_with_it(recipes, windows_profil
         validate(resolve(app, BuildMode.Release, profile=windows_profile))
 
 
+def with_cppstd(profile, cppstd: int):
+    return profile.model_copy(
+        update={"settings": profile.settings.model_copy(update={"cppstd": cppstd})}
+    )
+
+
+def test_a_profile_below_a_recipes_standard_is_refused(recipes, linux_profile):
+    span = recipes("span", "    min_cppstd = 20\n")
+
+    validate(resolve(span, BuildMode.Release, profile=with_cppstd(linux_profile, 20)))
+    validate(resolve(span, BuildMode.Release, profile=with_cppstd(linux_profile, 23)))
+    with pytest.raises(InvalidConfiguration, match=r"span: needs C\+\+20.*profile says C\+\+17"):
+        validate(resolve(span, BuildMode.Release, profile=with_cppstd(linux_profile, 17)))
+
+
+def test_a_dependency_that_needs_a_newer_standard_stops_the_whole_graph(recipes, linux_profile):
+    recipes("span", "    min_cppstd = 20\n")
+    app = recipes("app", deps('self.dep("../span")'))
+
+    with pytest.raises(InvalidConfiguration, match=r"span: needs C\+\+20"):
+        validate(resolve(app, BuildMode.Release, profile=with_cppstd(linux_profile, 17)))
+
+
 TOOL_RECIPE = """\
 from silo import InvalidConfiguration, SiloPackage
 
