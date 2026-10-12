@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from silo import retry
 from silo.build_profile import CompilerProfile, Profile, Settings
 from silo.enums import Architecture, Compiler, Platform
 from silo.options import Options
@@ -22,6 +23,11 @@ class Demo(SiloPackage[Options]):
 @pytest.fixture(autouse=True)
 def isolated_silo_home(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("SILO_HOME", str(tmp_path_factory.mktemp("silo-home")))
+
+
+@pytest.fixture(autouse=True)
+def no_waiting_between_retries(monkeypatch):
+    monkeypatch.setattr(retry, "DELAYS", (0.0, 0.0))
 
 
 @pytest.fixture

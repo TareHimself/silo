@@ -1,8 +1,10 @@
 import hashlib
+import http.client
 import os
 import re
 import shutil
 import subprocess
+import urllib.error
 import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -11,8 +13,11 @@ from pathlib import Path
 from silo.errors import SiloError
 from silo.git_snapshot import fetch_commit, snapshot_tree
 from silo.paths import downloads_dir
+from silo.retry import retrying
 
 FULL_COMMIT = re.compile(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")
+# Answers that say the file is not there or not ours to have, which asking again never changes
+FINAL_HTTP_STATUSES = frozenset({400, 401, 403, 404, 410})
 
 
 @dataclass
@@ -165,8 +170,17 @@ def download(url: str, sha256: str) -> Path:
     archive.parent.mkdir(parents=True, exist_ok=True)
     partial = archive.with_name(archive.name + ".part")
     request = urllib.request.Request(url, headers={"User-Agent": "silo"})
-    with urllib.request.urlopen(request) as response, partial.open("wb") as out:
-        shutil.copyfileobj(response, out)
+
+    def attempt() -> None:
+        with urllib.request.urlopen(request) as response, partial.open("wb") as out:
+            shutil.copyfileobj(response, out)
+
+    def is_final(error: Exception) -> bool:
+        if isinstance(error, urllib.error.HTTPError):
+            return error.code in FINAL_HTTP_STATUSES
+        return not isinstance(error, (OSError, http.client.HTTPException))
+
+    retrying(f"Downloading {url}", attempt, gives_up=is_final)
 
     actual = sha256_of(partial)
     if actual != sha256:
