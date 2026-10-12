@@ -411,10 +411,24 @@ def _check_platform(node: Node) -> None:
         )
 
 
+def _check_cppstd(node: Node) -> None:
+    package = node.package
+    if package.min_cppstd is None or package._profile is None:
+        return
+    cppstd = package._profile.settings.cppstd
+    if cppstd < package.min_cppstd:
+        raise InvalidConfiguration(
+            f"{node.name}: needs C++{package.min_cppstd}, and the profile says C++{cppstd}. "
+            "Every package of a graph is built with the profile's standard, so raise cppstd "
+            "under [settings] in the profile."
+        )
+
+
 def validate(graph: Graph) -> None:
     """Give every recipe the chance to reject the resolved graph, before anything builds."""
     for node in graph.nodes.values():
         _check_platform(node)
+        _check_cppstd(node)
         try:
             node.package.validate()
         except InvalidConfiguration as error:

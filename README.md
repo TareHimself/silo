@@ -229,6 +229,7 @@ A recipe is a `silopkg.py` holding a class that extends `SiloPackage`. `tinyxml2
 | `package()` | Returns a `Package` of `Component`s: headers, libraries, programs and what they require | everything |
 
 - `self.profile` is known in every hook, so `deps()` can pick dependencies by target system (`self.profile.settings.os`).
+- Every package of a graph is built with the profile's C++ standard (`cppstd`, 20 by default). A recipe that needs a newer one than some profile may have says `min_cppstd = 20`, for its own sources or for its headers alike, and a profile below it is refused before anything builds, with the name of the package that asked.
 - A recipe that builds on some platforms only names them: `platforms = (Platform.Linux,)`. Left out, it builds everywhere. On any other platform the graph is refused before anything builds, for the recipe and for whatever links or runs it, and `silo affected` leaves them out. `examples/decor` does this.
 - A recipe that can build a shared library sets `supports_shared = True` and acts on `self.options.shared`. Its options class can change the default.
 - Upstream build files often expect other target names. `CMakeDeps(self).alias("ZLIB::ZLIB", "zlib::zlib")` adds the name for this build only and makes `find_package(ZLIB)` work. An alias for a package or component that is not there fails in `generate()`.
@@ -349,7 +350,7 @@ To add a platform, implement `PlatformBackend` (`platform/base.py`) in its own f
 - Submodules in a local source.
 - macOS builds. Linux builds with gcc or clang. `zapp` and `sdf` were built in containers of Ubuntu, Debian, Fedora, Arch, Alpine (musl), openSUSE, Rocky and Amazon Linux. `decor` builds on those too, except on Alpine, where glib needs a libintl. Most recipes written on Windows have not been built on Linux.
 - On Linux the system's `/usr/bin` is on the build's `PATH`, since the compiler needs it. A tool installed there can be used without being declared, and `gperf`, `m4` and `bison` in silo-recipes need the machine's `make`.
-- C++20 with clang needs `clang-scan-deps` on the machine, because CMake scans for modules from that standard on. The default standard is 17.
+- The default standard is C++20. With clang that needs `clang-scan-deps` on the machine, because CMake scans for modules from that standard on.
 - libdecor finds its plugins only through `LIBDECOR_PLUGIN_DIR`, which the program sets to the package's `lib/libdecor/plugins-1`.
 - A Python of the recipe's choosing. Meson and build scripts run on silo's own interpreter, which is on the build's `PATH` as `python3` on Linux.
 - `ConanInstall` for Apple clang, and for packages with dependencies of their own.
