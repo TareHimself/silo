@@ -60,10 +60,13 @@ class MesonGenerator:
         if pkg_config:
             binaries["pkg-config"] = Path(pkg_config).as_posix()
 
+        # With the drive of the stage folder on Windows. A path that starts at the root but
+        # names no drive is not absolute there, which Meson stumbles over (glib's gio).
+        prefix = (Path(context.stage_dir.anchor) / context.install_prefix.lstrip("/")).as_posix()
         debug = context.build_type is BuildMode.Debug
         builtin: dict[str, OptionValue] = {
             "buildtype": "debug" if debug else "release",
-            "prefix": context.install_prefix,
+            "prefix": prefix,
             "libdir": "lib",
             "default_library": "static",
             # A dependency that is missing fails the build instead of being downloaded
