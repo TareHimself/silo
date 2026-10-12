@@ -8,6 +8,7 @@ from silo.errors import InvalidConfiguration, ResolutionError
 
 RECIPE = """\
 from silo import InvalidConfiguration, Options, SiloPackage
+from silo.enums import Platform
 
 
 class {class_name}Options(Options):
@@ -200,6 +201,34 @@ def test_validate_sees_how_a_dependency_was_resolved(recipes):
     assert graph.nodes["freetype"].package.dependencies["zlib"].overridden
     with pytest.raises(InvalidConfiguration, match=r"freetype: cannot use a fast zlib 1\.0"):
         validate(graph)
+
+
+LINUX_ONLY = "    platforms = (Platform.Linux,)\n"
+
+
+def test_a_recipe_without_platforms_builds_everywhere(recipes, linux_profile, windows_profile):
+    app = recipes("app")
+
+    validate(resolve(app, BuildMode.Release, profile=linux_profile))
+    validate(resolve(app, BuildMode.Release, profile=windows_profile))
+
+
+def test_a_recipe_is_refused_on_a_platform_it_does_not_name(
+    recipes, linux_profile, windows_profile
+):
+    wayland = recipes("wayland", LINUX_ONLY)
+
+    validate(resolve(wayland, BuildMode.Release, profile=linux_profile))
+    with pytest.raises(InvalidConfiguration, match=r"wayland: builds on linux only.*for windows"):
+        validate(resolve(wayland, BuildMode.Release, profile=windows_profile))
+
+
+def test_whatever_links_such_a_recipe_is_refused_with_it(recipes, windows_profile):
+    recipes("wayland", LINUX_ONLY)
+    app = recipes("app", deps('self.dep("../wayland")'))
+
+    with pytest.raises(InvalidConfiguration, match="wayland: builds on linux only"):
+        validate(resolve(app, BuildMode.Release, profile=windows_profile))
 
 
 TOOL_RECIPE = """\

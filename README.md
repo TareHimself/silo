@@ -229,6 +229,7 @@ A recipe is a `silopkg.py` holding a class that extends `SiloPackage`. `tinyxml2
 | `package()` | Returns a `Package` of `Component`s: headers, libraries, programs and what they require | everything |
 
 - `self.profile` is known in every hook, so `deps()` can pick dependencies by target system (`self.profile.settings.os`).
+- A recipe that builds on some platforms only names them: `platforms = (Platform.Linux,)`. Left out, it builds everywhere. On any other platform the graph is refused before anything builds, for the recipe and for whatever links or runs it, and `silo affected` leaves them out. `examples/decor` does this.
 - A recipe that can build a shared library sets `supports_shared = True` and acts on `self.options.shared`. Its options class can change the default.
 - Upstream build files often expect other target names. `CMakeDeps(self).alias("ZLIB::ZLIB", "zlib::zlib")` adds the name for this build only and makes `find_package(ZLIB)` work. An alias for a package or component that is not there fails in `generate()`.
 - The toolchain file stops CMake from finding packages installed on the machine. A recipe that needs one calls `CMakeGenerator(self).allow_system_packages()`.
