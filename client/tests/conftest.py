@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tenacity import wait_none
 
 from silo import retry
 from silo.build_profile import CompilerProfile, Profile, Settings
@@ -27,7 +28,7 @@ def isolated_silo_home(tmp_path_factory, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_waiting_between_retries(monkeypatch):
-    monkeypatch.setattr(retry, "DELAYS", (0.0, 0.0))
+    monkeypatch.setattr(retry, "WAIT", wait_none())
 
 
 @pytest.fixture
