@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from silo.errors import SiloError
+from silo.package import framework_flags
 from silo.silo_package import SiloPackage
 from silo.tools.cmake.cmake_generator import CONFIGS_DIR, RUNTIME_FILE
 
@@ -83,6 +84,7 @@ def _component_targets(
             *helpers,
             *[_package_of(reference)[1] for reference in component["requires"]],
             *component["system_libs"],
+            *framework_flags(component),
         ],
     }
     definitions = [_define_target(name, "SHARED", library) for name, library in helpers.items()]

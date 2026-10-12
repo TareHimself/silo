@@ -142,6 +142,18 @@ def test_a_pc_file_points_into_the_store_under_silos_name_and_version():
     assert "Libs: ${prefix}/lib/libfreetype.a -lm" in text
 
 
+def test_a_pc_file_links_the_frameworks_a_component_names():
+    cairo = {
+        "name": "cairo",
+        "version": "1.18.0",
+        "components": {"cairo": component(frameworks=["CoreGraphics", "CoreText"])},
+    }
+
+    text = pc_text(cairo, "cairo", Path("/store/cairo-1"), {})
+
+    assert "Libs: -framework CoreGraphics -framework CoreText" in text
+
+
 def stored(tmp_path, manifest: dict) -> Path:
     package_dir = tmp_path / "store" / f"{manifest['name']}-1"
     (package_dir / "silo").mkdir(parents=True)

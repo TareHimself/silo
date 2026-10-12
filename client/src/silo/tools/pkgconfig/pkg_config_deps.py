@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from silo.errors import SiloError
+from silo.package import framework_flags
 from silo.silo_package import SiloPackage
 
 PC_DIR = "pkgconfig"
@@ -58,6 +59,7 @@ def pc_text(
         f"${{prefix}}/{a.get('import', a['path'])}" for a in artifacts if a["type"] in LINKED
     ]
     system = [f"-l{library}" for library in component["system_libs"]]
+    system += framework_flags(component)
     requires = [
         names[target]
         for requirement in component["requires"]

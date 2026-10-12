@@ -40,6 +40,8 @@ class Component:
     requires: list[str | Requirement] = field(default_factory=list)
     defines: list[str] = field(default_factory=list)
     system_libs: list[str] = field(default_factory=list)
+    # macOS's system libraries, by name alone: "Cocoa", "CoreText"
+    frameworks: list[str] = field(default_factory=list)
     build_modules: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
 
@@ -167,6 +169,11 @@ def _component_artifacts(
     return artifacts
 
 
+def framework_flags(component: dict) -> list[str]:
+    """What links the frameworks a stored component names. Older packages name none."""
+    return [f"-framework {name}" for name in component.get("frameworks", [])]
+
+
 def stored_components(package_dir: Path) -> list[str]:
     """The component names of a package already in the store."""
     manifest = json.loads((package_dir / "silo" / "package.json").read_text(encoding="utf-8"))
@@ -231,6 +238,7 @@ def _component_manifest(
         "requires": requires,
         "defines": list(component.defines),
         "system_libs": list(component.system_libs),
+        "frameworks": list(component.frameworks),
         "env": component.env,
     }
 
