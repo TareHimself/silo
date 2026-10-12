@@ -403,3 +403,11 @@ def test_a_new_report_replaces_the_logs_of_the_last_one(tmp_path):
     BuildReport(tmp_path / "out")
 
     assert not stale.exists()
+
+
+def test_pkgconf_is_told_to_leave_the_prefix_of_a_pc_file_alone(
+    load_demo_recipe, windows_profile, tmp_path
+):
+    env = build_environment(load_demo_recipe(""), windows_profile, NodeInputs(), tmp_path)
+
+    assert env["PKG_CONFIG_DONT_DEFINE_PREFIX"] == "1"
