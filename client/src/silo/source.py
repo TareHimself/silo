@@ -175,7 +175,7 @@ def download(url: str, sha256: str) -> Path:
         with urllib.request.urlopen(request) as response, partial.open("wb") as out:
             shutil.copyfileobj(response, out)
 
-    def is_final(error: Exception) -> bool:
+    def is_final(error: BaseException) -> bool:
         if isinstance(error, urllib.error.HTTPError):
             return error.code in FINAL_HTTP_STATUSES
         return not isinstance(error, (OSError, http.client.HTTPException))
