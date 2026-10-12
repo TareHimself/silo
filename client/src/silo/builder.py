@@ -145,11 +145,18 @@ class WorkDirs:
     def tmp(self) -> Path:
         return self.root / "tmp"
 
-    def reset_scratch(self) -> None:
-        """Source and build survive between runs, so rebuilds are incremental."""
-        for scratch in (self.stage, self.generated, self.tmp):
-            if scratch.exists():
-                shutil.rmtree(scratch)
+    def reset_scratch(self, incremental: bool) -> None:
+        """Clear what an earlier attempt left behind.
+
+        With `incremental`, which is for a local source, the build folder stays so a rebuild
+        only compiles what changed. A fetched package is built once, and after a failure its
+        build folder holds a configuration made under conditions that may be gone.
+        """
+        scratch = [self.stage, self.generated, self.tmp]
+        if not incremental:
+            scratch.append(self.build)
+        for folder in scratch:
+            remove_tree(folder)
         self.tmp.mkdir(parents=True)
 
 
@@ -192,9 +199,13 @@ def prepare_source(node: Node, dirs: WorkDirs) -> None:
     tree = SourceTree(dirs.source, package.recipe_dir)
 
     if not source.local_source:
-        if not dirs.source.exists():
-            fetch_source(source, dirs.source)
-            package.patch(tree)
+        # Written last, so a fetch or patch that stopped halfway is done again from nothing
+        if dirs.source_state.exists():
+            return
+        remove_tree(dirs.source)
+        fetch_source(source, dirs.source)
+        package.patch(tree)
+        dirs.source_state.write_text(json.dumps({"source": source.id}))
         return
 
     assert source.local_dir is not None and source.tree is not None
@@ -275,7 +286,7 @@ def _build_into_store(
     package = node.package
     label = store_path.name
     backend = backend_for(profile.settings.os)
-    dirs.reset_scratch()
+    dirs.reset_scratch(incremental=node.source.local_source)
 
     package._context = BuildContext(
         profile=profile,

@@ -127,6 +127,22 @@ def test_a_failed_build_keeps_its_folder(upstream, tmp_path, windows_profile):
     assert len(build_folders()) == 1
 
 
+def test_a_retry_of_a_fetched_package_starts_with_an_empty_build_folder(
+    upstream, tmp_path, windows_profile
+):
+    source = upstream({"demo.h": "// h\n", "broken": ""})
+    write(tmp_path / "recipe" / "silopkg.py", RECIPE.format(source=source))
+    with pytest.raises(RuntimeError, match="compiler said no"):
+        build(tmp_path / "recipe", windows_profile)
+    leftover = paths.builds_dir() / build_folders()[0] / "build" / "configured-earlier.txt"
+    write(leftover, "from the failed attempt")
+
+    with pytest.raises(RuntimeError, match="compiler said no"):
+        build(tmp_path / "recipe", windows_profile)
+
+    assert not leftover.exists()
+
+
 def test_a_local_package_keeps_its_build_folder(git_repo, windows_profile):
     write(git_repo / "silopkg.py", RECIPE.format(source='local(".")'))
     write(git_repo / "demo.h", "// h\n")

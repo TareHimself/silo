@@ -183,3 +183,31 @@ def test_source_flag_for_a_package_outside_the_graph_is_an_error(git_repo, app_w
 
     with pytest.raises(ResolutionError, match="--source names 'libpng'"):
         resolve(git_repo / "app", BuildMode.Release, cli_sources={"libpng": git_repo / "my-zlib"})
+
+
+def test_a_source_that_was_only_half_fetched_is_fetched_again(upstream, tmp_path):
+    repo, commit = upstream
+    recipe_dir = tmp_path / "recipe"
+    write(recipe_dir / "silopkg.py", GIT_RECIPE.format(url=repo.as_uri(), commit=commit))
+    node = resolve(recipe_dir, BuildMode.Release).nodes["demo"]
+    dirs = WorkDirs(tmp_path / "work")
+    write(dirs.source / "half-written.c", "int")
+
+    prepare_source(node, dirs)
+
+    assert (dirs.source / "lib.c").is_file()
+    assert not (dirs.source / "half-written.c").exists()
+
+
+def test_a_fetched_source_is_not_fetched_twice(upstream, tmp_path):
+    repo, commit = upstream
+    recipe_dir = tmp_path / "recipe"
+    write(recipe_dir / "silopkg.py", GIT_RECIPE.format(url=repo.as_uri(), commit=commit))
+    node = resolve(recipe_dir, BuildMode.Release).nodes["demo"]
+    dirs = WorkDirs(tmp_path / "work")
+    prepare_source(node, dirs)
+    write(dirs.source / "built-here.o", "object")
+
+    prepare_source(node, dirs)
+
+    assert (dirs.source / "built-here.o").is_file()
