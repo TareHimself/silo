@@ -6,6 +6,8 @@ A C++ package manager: builds dependencies from source in an isolated environmen
 
 ```
 uv run --package silo silo profile detect             # writes <SILO_HOME>/profiles/default.toml
+uv run --package silo silo profile detect --force --compiler clang  # clang where gcc is installed too
+uv run --package silo silo profile detect --matching ci/linux-gcc.toml  # fail unless the compiler is that file's
 uv run --package silo silo build ../silo-recipes/recipes/zlib/1.3.1  # builds into <SILO_HOME>/store
 uv run --package silo silo build examples/zapp        # a local project: zapp -> freetype -> zlib
 uv run --package silo silo build examples/zapp --debug  # root in debug, dependencies stay release
@@ -14,6 +16,7 @@ uv run --package silo silo sync examples/zapp --debug-all  # debug preset with d
 uv run --package silo silo graph examples/zapp        # resolve and print the graph, build nothing
 uv run --package silo silo build examples/sdf --report out   # report.json and a log per package
 uv run --package silo silo run -C examples/zapp -- cmake --version  # any command, in the build environment
+uv run --package silo silo affected ../silo-recipes --since main  # recipes a change reaches, as JSON
 uv run --package silo silo cache list                 # sizes of the caches under <SILO_HOME>/cache
 uv run --package silo silo cache clear builds git     # delete some caches, or all with no names
 ```
@@ -104,6 +107,7 @@ Everyone who depends on that recipe then gets ebml without repeating the locatio
 - Only the root project's `silo.config.toml` counts. A dependency's own file is ignored.
 - Each fetched commit is its own folder under `<SILO_HOME>/cache/registries` and is never changed.
 - Publishing a recipe is a `git push` to the registry. A new version is a new folder.
+- `silo affected <registry> --since <ref>` lists the recipes a change reaches: the changed ones and every recipe that links or runs one of them, resolved with default options. `--profile <file>` answers for that profile, which can describe another system since nothing is built, and may be given several times. `--all` lists every recipe. silo-recipes uses it to build one CI job per recipe and profile.
 - A recipe's hash is the bytes of the files in its folder, so it is the same in a working copy, a fetched registry or an unpacked archive. A recipe file with Windows line endings (CRLF) is refused. A `.gitattributes` with `* text=auto eol=lf` keeps a registry on LF for everyone.
 - For a project's own recipe, which builds the folder it sits in, only `silopkg.py` is hashed. The source snapshot covers the rest.
 
@@ -317,6 +321,7 @@ cli.build
 | `client/src/silo/git_snapshot.py` | Hash and copy a local folder through git, without touching its repo |
 | `client/src/silo/verifier.py` | Rejects a package that has its install prefix compiled in |
 | `client/src/silo/registry.py` | `silo.config.toml`: registries, packages taken from a folder or a commit, and the lookup |
+| `client/src/silo/affected.py` | Which recipes of a registry a change reaches, for `silo affected` |
 | `client/src/silo/errors.py` | Errors the CLI prints without a traceback |
 | `client/src/silo/report.py` | What `silo build --report` writes |
 | `client/src/silo/platform/` | Everything OS specific, behind `PlatformBackend` |

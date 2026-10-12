@@ -1,0 +1,28 @@
+name: Lint and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: lint-and-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync --all-packages
+      - run: uvx ruff check .
+      - run: uvx ruff format --check client examples
+      - run: uv run --package silo pytest client/tests
+

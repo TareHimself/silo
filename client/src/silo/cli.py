@@ -1,16 +1,18 @@
+import json
 from pathlib import Path
 
 import typer
 
 from silo import cache
+from silo.affected import affected_entries, changed_entries
 from silo.build_profile import Profile, Settings
 from silo.builder import build_graph, run_command, sync_graph
 from silo.dependency import OptionValue
 from silo.dependency_graph import Graph, resolve, validate
-from silo.enums import BuildMode
+from silo.enums import BuildMode, Compiler
 from silo.errors import SiloError
 from silo.paths import profile_path
-from silo.platform import backend_for, get_arch, get_platform
+from silo.platform import backend_for, detect_compiler_like, get_arch, get_platform
 from silo.report import BuildReport
 
 app = typer.Typer()
@@ -112,6 +114,43 @@ def graph(
         raise fail(error) from error
 
     print_graph(resolved)
+
+
+@app.command()
+def affected(
+    path: Path = typer.Argument(Path("."), help="Directory holding the registry"),
+    since: str | None = typer.Option(
+        None, "--since", help="A branch, tag or commit to compare the registry with"
+    ),
+    everything: bool = typer.Option(False, "--all", help="List every recipe"),
+    profile_files: list[Path] = typer.Option(
+        [], "--profile", "-p", help="A profile file to answer for. The default profile if none"
+    ),
+):
+    """Print the recipes of a registry that a change reaches, as JSON, one list per profile.
+
+    A recipe is reached when it changed, or when anything it links or runs did. Graphs are
+    resolved with default options and nothing is built, so a profile file can describe a
+    system other than this one. Each list is named after its file.
+    """
+    root = path.resolve()
+    try:
+        if everything == bool(since):
+            raise SiloError("Give either --since <ref> or --all")
+        changed = None if everything else changed_entries(root, since)
+        profiles = {file.stem: Profile.load(file) for file in profile_files}
+        if not profiles:
+            profiles = {"default": load_profile("default")}
+        listed = {
+            name: [
+                entry.relative_to(root).as_posix()
+                for entry in affected_entries(root, changed, profile)
+            ]
+            for name, profile in profiles.items()
+        }
+    except SiloError as error:
+        raise fail(error) from error
+    print(json.dumps(listed))
 
 
 @app.command()
@@ -225,6 +264,15 @@ def run(
 def detect(
     name: str = typer.Option("default", "--name", "-n"),
     force: bool = typer.Option(False, "--force", "-f"),
+    compiler: Compiler | None = typer.Option(
+        None, "--compiler", help="The compiler to look for, where a system has several"
+    ),
+    matching: Path | None = typer.Option(
+        None,
+        "--matching",
+        help="A profile file. Fail unless this machine has its kind of compiler, in a "
+        "version whose binaries mix with it",
+    ),
 ):
     path = profile_path(name)
     if path.exists() and not force:
@@ -232,9 +280,18 @@ def detect(
         raise typer.Exit(1)
 
     os, arch = get_platform(), get_arch()
-    profile = Profile(
-        settings=Settings(os=os, arch=arch), compiler=backend_for(os).detect_compiler(arch)
-    )
+    try:
+        if matching and compiler:
+            raise SiloError(
+                "--matching names the compiler already, so --compiler cannot go with it"
+            )
+        if matching:
+            found = detect_compiler_like(Profile.load(matching))
+        else:
+            found = backend_for(os).detect_compiler(arch, compiler)
+    except SiloError as error:
+        raise fail(error) from error
+    profile = Profile(settings=Settings(os=os, arch=arch), compiler=found)
     profile.save(path)
     print(f"Wrote {path}")
     print(path.read_text(encoding="utf-8"))

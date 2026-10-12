@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from silo.build_profile import CompilerProfile, Profile
-from silo.enums import Architecture, RuntimeLibrary
+from silo.enums import Architecture, Compiler, RuntimeLibrary
 
 
 class PlatformBackend(ABC):
@@ -20,7 +20,8 @@ class PlatformBackend(ABC):
     runtime_search: tuple[str, ...] = ()
 
     @abstractmethod
-    def detect_compiler(self, arch: Architecture) -> CompilerProfile: ...
+    def detect_compiler(self, arch: Architecture, kind: Compiler | None = None) -> CompilerProfile:
+        """The compiler this machine builds with. `kind` asks for one of several."""
 
     @abstractmethod
     def build_env(self, profile: Profile, tool_dirs: list[Path], tmp: Path) -> dict[str, str]:

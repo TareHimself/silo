@@ -1,7 +1,9 @@
 import platform as host
 from typing import TYPE_CHECKING
 
+from silo.build_profile import CompilerProfile, Profile
 from silo.enums import Architecture, Platform
+from silo.errors import SiloError
 
 if TYPE_CHECKING:
     from silo.platform.base import PlatformBackend
@@ -49,3 +51,18 @@ def backend_for(os: Platform) -> "PlatformBackend":
             from silo.platform.macos import MacOSBackend
 
             return MacOSBackend()
+
+
+def detect_compiler_like(wanted: Profile) -> CompilerProfile:
+    """This machine's compiler, which has to be the kind and generation `wanted` names."""
+    os, compiler = get_platform(), wanted.compiler
+    if os is not wanted.settings.os:
+        raise SiloError(f"The profile is for {wanted.settings.os.value}, and this is {os.value}")
+    found = backend_for(os).detect_compiler(get_arch(), compiler.kind)
+    if found.generation != compiler.generation:
+        raise SiloError(
+            f"The profile names {compiler.kind.value} {compiler.generation} "
+            f"(version {compiler.version}), but this machine has {found.generation} "
+            f"(version {found.version})"
+        )
+    return found
