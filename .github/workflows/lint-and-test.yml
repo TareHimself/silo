@@ -1,4 +1,4 @@
-name: CI
+name: Lint and test
 
 on:
   push:
@@ -6,11 +6,11 @@ on:
   pull_request:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: lint-and-test-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
