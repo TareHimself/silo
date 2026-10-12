@@ -37,6 +37,15 @@ def test_config_imports_each_component_by_full_path():
     assert 'PROPERTY INTERFACE_LINK_LIBRARIES "zlib::zlib;freetype::base;ws2_32"' in config
 
 
+def test_a_framework_is_linked_by_its_name():
+    component = MANIFEST["components"]["freetype"] | {"frameworks": ["Cocoa", "IOKit"]}
+    manifest = MANIFEST | {"components": {"freetype": component}}
+
+    config = cmake_config(manifest, STORE)
+
+    assert ';ws2_32;-framework Cocoa;-framework IOKit"' in config
+
+
 def test_the_store_path_is_written_once_as_a_variable():
     config = cmake_config(MANIFEST, STORE)
 
