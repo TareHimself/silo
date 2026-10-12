@@ -44,10 +44,12 @@ class UnixBackend(PlatformBackend):
         }
 
     def static_lib_candidates(self, name: str) -> list[str]:
-        return [f"lib/lib{name}.a"]
+        # The second is what a debug build of some projects installs, freetype among them
+        return [f"lib/lib{name}.a", f"lib/lib{name}d.a"]
 
     def shared_lib_candidates(self, name: str) -> list[tuple[str, str | None]]:
-        return [(f"lib/lib{name}{self.shared_lib_suffix}", None)]
+        suffix = self.shared_lib_suffix
+        return [(f"lib/lib{name}{suffix}", None), (f"lib/lib{name}d{suffix}", None)]
 
     def executable_candidates(self, name: str) -> list[str]:
         return [f"bin/{name}"]
