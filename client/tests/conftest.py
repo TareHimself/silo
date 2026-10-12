@@ -69,6 +69,22 @@ def linux_profile() -> Profile:
 
 
 @pytest.fixture
+def macos_profile() -> Profile:
+    toolchain = Path("/Xcode.app/Toolchains/XcodeDefault.xctoolchain/usr/bin")
+    return Profile(
+        settings=Settings(os=Platform.Darwin, arch=Architecture.ARM64),
+        compiler=CompilerProfile(
+            kind=Compiler.AppleClang,
+            executable=toolchain / "clang",
+            cxx_executable=toolchain / "clang++",
+            version="21.0.0",
+            target="arm64-apple-macos15.0",
+            sdk="26.5",
+        ),
+    )
+
+
+@pytest.fixture
 def load_demo_recipe(tmp_path):
     def load(extra_class_body: str = "") -> SiloPackage:
         recipe_dir = tmp_path / "demo"
