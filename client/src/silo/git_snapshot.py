@@ -16,6 +16,10 @@ import xxhash
 from silo.errors import SiloError
 from silo.paths import git_sources_dir, snapshots_dir
 
+# Windows stops at 260 characters in a path unless git is told otherwise, and a store in a
+# deep folder plus a source with long file names goes past that. Ignored elsewhere.
+GIT = ("git", "-c", "core.longpaths=true")
+
 
 @dataclass(frozen=True)
 class Repo:
@@ -67,7 +71,7 @@ def _git(repo: Repo, work_tree: Path, index_file: Path, *args: str) -> str:
         "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(repo.objects),
     }
     result = subprocess.run(
-        ["git", *args], cwd=work_tree, env=env, capture_output=True, encoding="utf-8", check=False
+        [*GIT, *args], cwd=work_tree, env=env, capture_output=True, encoding="utf-8", check=False
     )
     if result.returncode != 0:
         raise SiloError(f"git {' '.join(args)} failed in {work_tree}:\n{result.stderr.strip()}")
@@ -87,7 +91,7 @@ def _snapshot_index(repo: Repo, directory: Path) -> Path:
 
 def _plain_git(cwd: Path, *args: str, env: dict[str, str] | None = None) -> str:
     result = subprocess.run(
-        ["git", *args], cwd=cwd, env=env, capture_output=True, encoding="utf-8", check=False
+        [*GIT, *args], cwd=cwd, env=env, capture_output=True, encoding="utf-8", check=False
     )
     if result.returncode != 0:
         raise SiloError(f"git {args[0]} failed in {cwd}: {result.stderr.strip()}")
