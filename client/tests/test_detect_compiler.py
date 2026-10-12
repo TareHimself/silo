@@ -1,8 +1,11 @@
 import pytest
+from typer.testing import CliRunner
 
-from silo import platform
+from silo import cli, platform
+from silo.build_profile import Profile
 from silo.enums import Architecture, Compiler, Platform
 from silo.errors import SiloError
+from silo.paths import profile_path
 from silo.platform import linux
 from silo.platform.linux import LinuxBackend
 from silo.platform.windows import WindowsBackend
@@ -80,3 +83,18 @@ def test_another_major_version_does_not_match(on_linux, linux_profile):
 def test_a_profile_for_another_system_does_not_match(on_linux, windows_profile):
     with pytest.raises(SiloError, match="for windows, and this is linux"):
         platform.detect_compiler_like(windows_profile)
+
+
+def test_detect_matching_keeps_the_files_standard(monkeypatch, tmp_path, linux_profile):
+    wanted = linux_profile.model_copy(
+        update={"settings": linux_profile.settings.model_copy(update={"cppstd": 23})}
+    )
+    wanted.save(tmp_path / "wanted.toml")
+    monkeypatch.setattr(cli, "detect_compiler_like", lambda profile: profile.compiler)
+
+    result = CliRunner().invoke(
+        cli.app, ["profile", "detect", "--matching", str(tmp_path / "wanted.toml")]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert Profile.load(profile_path("default")).settings.cppstd == 23

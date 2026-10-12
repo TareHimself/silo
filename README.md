@@ -7,7 +7,7 @@ A C++ package manager: builds dependencies from source in an isolated environmen
 ```
 uv run --package silo silo profile detect             # writes <SILO_HOME>/profiles/default.toml
 uv run --package silo silo profile detect --force --compiler clang  # clang where gcc is installed too
-uv run --package silo silo profile detect --matching ci/linux-gcc.toml  # fail unless the compiler is that file's
+uv run --package silo silo profile detect --matching ci/linux-gcc.toml  # that file's standard, and fail unless the compiler is its kind
 uv run --package silo silo build ../silo-recipes/recipes/zlib/1.3.1  # builds into <SILO_HOME>/store
 uv run --package silo silo build examples/zapp        # a local project: zapp -> freetype -> zlib
 uv run --package silo silo build examples/zapp --debug  # root in debug, dependencies stay release

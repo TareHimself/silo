@@ -285,13 +285,17 @@ def detect(
             raise SiloError(
                 "--matching names the compiler already, so --compiler cannot go with it"
             )
+        settings = Settings(os=os, arch=arch)
         if matching:
-            found = detect_compiler_like(Profile.load(matching))
+            wanted = Profile.load(matching)
+            found = detect_compiler_like(wanted)
+            # The file is the whole configuration, so its standard and C++ library are kept
+            settings = wanted.settings.model_copy(update={"os": os, "arch": arch})
         else:
             found = backend_for(os).detect_compiler(arch, compiler)
     except SiloError as error:
         raise fail(error) from error
-    profile = Profile(settings=Settings(os=os, arch=arch), compiler=found)
+    profile = Profile(settings=settings, compiler=found)
     profile.save(path)
     print(f"Wrote {path}")
     print(path.read_text(encoding="utf-8"))
