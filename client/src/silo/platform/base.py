@@ -43,6 +43,10 @@ class PlatformBackend(ABC):
     def hardening_defines(self, profile: Profile) -> list[str]:
         """Preprocessor defines that turn on the C++ standard library's hardened mode."""
 
+    def cxx_flags(self, profile: Profile) -> list[str]:
+        """Flags every C++ compile gets, so the compiler reads the language as others do."""
+        return []
+
     def runtime_library(self, profile: Profile) -> RuntimeLibrary | None:
         """The runtime every build links, or None where the compiler has only one."""
         return None

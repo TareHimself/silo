@@ -233,6 +233,7 @@ A recipe is a `silopkg.py` holding a class that extends `SiloPackage`. `tinyxml2
 - A recipe that can build a shared library sets `supports_shared = True` and acts on `self.options.shared`. Its options class can change the default.
 - Upstream build files often expect other target names. `CMakeDeps(self).alias("ZLIB::ZLIB", "zlib::zlib")` adds the name for this build only and makes `find_package(ZLIB)` work. An alias for a package or component that is not there fails in `generate()`.
 - The toolchain file stops CMake from finding packages installed on the machine. A recipe that needs one calls `CMakeGenerator(self).allow_system_packages()`.
+- MSVC compiles C++ with `/permissive-` in every language version, so it reads the language the way gcc and clang do. Without it, valid code such as libwebm's fails below C++20.
 - silo builds everything against the release DLL runtime on Windows (`/MD`), in debug builds too. An upstream build file that picks another one has to be told not to (see `libwebm` in silo-recipes and `msdfgen` in silo-recipes).
 
 ### Meson and pkg-config

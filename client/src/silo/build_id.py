@@ -10,7 +10,7 @@ from silo.silo_package import SiloPackage
 from silo.source import SourceSpec
 
 # Bump only when silo's build helpers change what a build produces
-HELPERS_VERSION = "4"
+HELPERS_VERSION = "5"
 
 ALL_SETTINGS = ("os", "arch", "compiler", "build_type", "cppstd", "libcxx")
 CXX_ONLY_SETTINGS = {"cppstd", "libcxx"}
