@@ -74,6 +74,9 @@ class MesonGenerator:
         runtime = backend.runtime_library(profile)
         if runtime:
             builtin["b_vscrt"] = VS_RUNTIME[runtime]
+        flags = backend.cxx_flags(profile)
+        if flags:
+            builtin["cpp_args"] = flags
         if backend.runtime_search:
             search = [f"-Wl,-rpath,{folder}" for folder in backend.runtime_search]
             builtin["c_link_args"] = builtin["cpp_link_args"] = search

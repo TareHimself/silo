@@ -92,6 +92,13 @@ class WindowsBackend(PlatformBackend):
             return []
         return ["_MSVC_STL_HARDENING=1"]
 
+    def cxx_flags(self, profile: Profile) -> list[str]:
+        if profile.compiler.kind is not Compiler.MSVC:
+            return []
+        # Standard C++ in every language version. Below C++20 MSVC otherwise reads
+        # templates its own older way and rejects valid code, as in libwebm.
+        return ["/permissive-"]
+
     def runtime_library(self, profile: Profile) -> RuntimeLibrary | None:
         if profile.compiler.kind is not Compiler.MSVC:
             return None

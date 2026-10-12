@@ -49,6 +49,9 @@ def toolchain_text(profile: Profile, system_packages: bool = False) -> str:
         variables["CMAKE_INSTALL_RPATH"] = ";".join(backend.runtime_search)
     if system_packages:
         del variables[SYSTEM_PATH_SWITCH]
+    flags = backend.cxx_flags(profile)
+    if flags:
+        variables["CMAKE_CXX_FLAGS_INIT"] = " ".join(flags)
     defines = backend.hardening_defines(profile)
     if defines:
         # _INIT adds to CMake's default flags, where CMAKE_CXX_FLAGS_DEBUG would replace them

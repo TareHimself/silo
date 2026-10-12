@@ -7,6 +7,7 @@ from silo.build_context import BuildContext
 from silo.enums import BuildMode
 from silo.errors import CommandFailed, SiloError
 from silo.tools.cmake import CMakeBuild, CMakeGenerator
+from silo.tools.cmake.cmake_generator import toolchain_text
 
 
 @pytest.fixture
@@ -43,6 +44,14 @@ def test_toolchain_sets_the_compiler_and_the_cpp_standard(demo_package, windows_
     assert f'set(CMAKE_C_COMPILER "{compiler}")' in toolchain
     assert f'set(CMAKE_CXX_COMPILER "{compiler}")' in toolchain
     assert f'set(CMAKE_CXX_STANDARD "{windows_profile.settings.cppstd}")' in toolchain
+
+
+def test_msvc_reads_cpp_as_the_standard_says_in_every_language_version(windows_profile):
+    assert 'set(CMAKE_CXX_FLAGS_INIT "/permissive-")' in toolchain_text(windows_profile)
+
+
+def test_gcc_gets_no_extra_cpp_flags(linux_profile):
+    assert "CMAKE_CXX_FLAGS_INIT" not in toolchain_text(linux_profile)
 
 
 def test_toolchain_hardens_the_stl_in_debug_builds_only(demo_package):
