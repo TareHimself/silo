@@ -53,14 +53,16 @@ def tool_bin(tmp_path):
     return make
 
 
-def test_the_native_file_names_the_compilers_and_the_sentinel_prefix(demo_package):
+def test_the_native_file_names_the_compilers_and_the_sentinel_prefix(demo_package, tmp_path):
     native_file = MesonGenerator(demo_package(build_type=BuildMode.Debug)).generate()
 
     text = native_file.read_text(encoding="utf-8")
     assert "c = '/usr/bin/gcc'" in text
     assert "cpp = '/usr/bin/g++'" in text
     assert "buildtype = 'debug'" in text
-    assert "prefix = '/silo-prefix-abc'" in text
+    # On Windows it carries the drive of the stage folder, since Meson wants it absolute
+    prefix = (Path(tmp_path.anchor) / "silo-prefix-abc").as_posix()
+    assert f"prefix = '{prefix}'" in text
     assert "wrap_mode = 'nodownload'" in text
 
 
