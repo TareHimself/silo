@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import urllib.error
 import urllib.request
+import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -219,7 +220,10 @@ def fetch_source(spec: SourceSpec, dest: Path) -> None:
     unpacked = dest.with_name(dest.name + ".unpack")
     if unpacked.exists():
         shutil.rmtree(unpacked)
-    shutil.unpack_archive(archive, unpacked, filter="data")
+    if zipfile.is_zipfile(archive):
+        shutil.unpack_archive(archive, unpacked, format="zip")
+    else:
+        shutil.unpack_archive(archive, unpacked, filter="data")
 
     _unpacked_root(unpacked).rename(dest)
     if unpacked.exists():
