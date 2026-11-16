@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 
 from silo.build_profile import CompilerProfile, Profile
-from silo.enums import Architecture, Compiler, RuntimeLibrary
+from silo.enums import Architecture, Compiler, RuntimeLibrary, RuntimeLinkage
 from silo.errors import SiloError
 from silo.platform.base import PlatformBackend
 from silo.platform.windows.msvc import capture_vcvars, find_visual_studio
@@ -12,6 +12,13 @@ MSVC_TARGETS = {
     Architecture.X86_64: "x86_64-pc-windows-msvc",
     Architecture.X86: "i686-pc-windows-msvc",
     Architecture.ARM64: "aarch64-pc-windows-msvc",
+}
+
+# The release one in debug builds too, so debug and release objects link together as they
+# do on other platforms
+MSVC_RUNTIMES = {
+    RuntimeLinkage.Dynamic: RuntimeLibrary.DynamicRelease,
+    RuntimeLinkage.Static: RuntimeLibrary.StaticRelease,
 }
 
 # vcvars puts Visual Studio's own cmake and ninja on PATH, which would satisfy an undeclared tool
@@ -102,6 +109,4 @@ class WindowsBackend(PlatformBackend):
     def runtime_library(self, profile: Profile) -> RuntimeLibrary | None:
         if profile.compiler.kind is not Compiler.MSVC:
             return None
-        # The release one in debug builds too, so debug and release objects link together
-        # as they do on other platforms
-        return RuntimeLibrary.DynamicRelease
+        return MSVC_RUNTIMES[profile.settings.runtime]

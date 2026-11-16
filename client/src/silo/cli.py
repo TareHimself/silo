@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import typer
+from pydantic import ValidationError
 
 from silo import cache
 from silo.affected import affected_entries, changed_entries
@@ -12,7 +13,13 @@ from silo.dependency_graph import Graph, resolve, validate
 from silo.enums import BuildMode, Compiler
 from silo.errors import SiloError
 from silo.paths import profile_path
-from silo.platform import backend_for, detect_compiler_like, get_arch, get_platform
+from silo.platform import (
+    backend_for,
+    check_runtime,
+    detect_compiler_like,
+    get_arch,
+    get_platform,
+)
 from silo.report import BuildReport
 
 app = typer.Typer()
@@ -28,6 +35,11 @@ REPORT_HELP = (
 )
 SOURCE_HELP = "package=path: build that package from a local folder for this run"
 DEBUG_HELP = "This package in debug (no optimization, hardening on), dependencies in release"
+PROFILE_HELP = (
+    "A profile's name, or a .toml file. A file with settings only goes over the default profile"
+)
+DEFAULT_PROFILE = "default"
+PROFILE_SUFFIX = ".toml"
 DEBUG_ALL_HELP = "This package and everything it links in debug. Tools stay release"
 
 
@@ -61,17 +73,28 @@ def parse_sources(raw: list[str]) -> dict[str, Path]:
     return sources
 
 
-def fail(error: SiloError) -> typer.Exit:
+def fail(error: SiloError | ValidationError) -> typer.Exit:
     print(f"error: {error}")
     return typer.Exit(1)
 
 
+def load_profile_file(profile_file: Path) -> Profile:
+    try:
+        profile = Profile.load(profile_file, base=profile_path(DEFAULT_PROFILE))
+        check_runtime(profile)
+    except (SiloError, ValidationError) as error:
+        raise fail(error) from error
+    return profile
+
+
 def load_profile(name: str) -> Profile:
-    profile_file = profile_path(name)
+    is_file = Path(name).suffix.lower() == PROFILE_SUFFIX
+    profile_file = Path(name) if is_file else profile_path(name)
     if not profile_file.exists():
-        print(f"No profile at {profile_file}. Run `silo profile detect` first.")
+        hint = "" if is_file else " Run `silo profile detect` first."
+        print(f"No profile at {profile_file}.{hint}")
         raise typer.Exit(1)
-    return Profile.load(profile_file)
+    return load_profile_file(profile_file)
 
 
 def print_graph(resolved: Graph, indent: str = "") -> None:
@@ -96,7 +119,7 @@ def graph(
     debug: bool = typer.Option(False, "--debug", help=DEBUG_HELP),
     debug_all: bool = typer.Option(False, "--debug-all", help=DEBUG_ALL_HELP),
     sources: list[str] = typer.Option([], "--source", help=SOURCE_HELP),
-    profile: str = typer.Option("default", "--profile", "-p"),
+    profile: str = typer.Option(DEFAULT_PROFILE, "--profile", "-p", help=PROFILE_HELP),
 ):
     """Resolve the graph and print it, without building."""
     build_type = BuildMode.Debug if debug or debug_all else BuildMode.Release
@@ -138,9 +161,9 @@ def affected(
         if everything == bool(since):
             raise SiloError("Give either --since <ref> or --all")
         changed = None if everything else changed_entries(root, since)
-        profiles = {file.stem: Profile.load(file) for file in profile_files}
+        profiles = {file.stem: load_profile_file(file) for file in profile_files}
         if not profiles:
-            profiles = {"default": load_profile("default")}
+            profiles = {DEFAULT_PROFILE: load_profile(DEFAULT_PROFILE)}
         listed = {
             name: [
                 entry.relative_to(root).as_posix()
@@ -157,7 +180,7 @@ def affected(
 def sync(
     path: Path = typer.Argument(Path("."), help="Directory holding the recipe"),
     options: list[str] = typer.Option([], "-o", help=OPTION_HELP),
-    profile: str = typer.Option("default", "--profile", "-p"),
+    profile: str = typer.Option(DEFAULT_PROFILE, "--profile", "-p", help=PROFILE_HELP),
     debug: bool = typer.Option(False, "--debug", help="Write only the debug configuration"),
     release: bool = typer.Option(False, "--release", help="Write only the release configuration"),
     debug_all: bool = typer.Option(
@@ -201,7 +224,7 @@ def sync(
 def build(
     path: Path = typer.Argument(Path("."), help="Directory holding the recipe"),
     options: list[str] = typer.Option([], "-o", help=OPTION_HELP),
-    profile: str = typer.Option("default", "--profile", "-p"),
+    profile: str = typer.Option(DEFAULT_PROFILE, "--profile", "-p", help=PROFILE_HELP),
     debug: bool = typer.Option(False, "--debug", help=DEBUG_HELP),
     debug_all: bool = typer.Option(False, "--debug-all", help=DEBUG_ALL_HELP),
     sources: list[str] = typer.Option([], "--source", help=SOURCE_HELP),
@@ -236,7 +259,7 @@ def run(
     context: typer.Context,
     path: Path = typer.Option(Path("."), "--project", "-C", help="Directory holding the recipe"),
     options: list[str] = typer.Option([], "-o", help=OPTION_HELP),
-    profile: str = typer.Option("default", "--profile", "-p"),
+    profile: str = typer.Option(DEFAULT_PROFILE, "--profile", "-p", help=PROFILE_HELP),
     debug_all: bool = typer.Option(False, "--debug-all", help=DEBUG_ALL_HELP),
     sources: list[str] = typer.Option([], "--source", help=SOURCE_HELP),
 ):
@@ -293,9 +316,10 @@ def detect(
             settings = wanted.settings.model_copy(update={"os": os, "arch": arch})
         else:
             found = backend_for(os).detect_compiler(arch, compiler)
-    except SiloError as error:
+        profile = Profile(settings=settings, compiler=found)
+        check_runtime(profile)
+    except (SiloError, ValidationError) as error:
         raise fail(error) from error
-    profile = Profile(settings=settings, compiler=found)
     profile.save(path)
     print(f"Wrote {path}")
     print(path.read_text(encoding="utf-8"))

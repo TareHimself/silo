@@ -11,6 +11,7 @@ uv run --package silo silo profile detect --matching ci/linux-gcc.toml  # that f
 uv run --package silo silo build ../silo-recipes/recipes/zlib/1.3.1  # builds into <SILO_HOME>/store
 uv run --package silo silo build examples/zapp        # a local project: zapp -> freetype -> zlib
 uv run --package silo silo build examples/zapp --debug  # root in debug, dependencies stay release
+uv run --package silo silo build examples/zapp -p ci/windows-static.toml  # that file's settings over the default profile
 uv run --package silo silo sync examples/zapp         # build the dependencies, write examples/zapp/.silo
 uv run --package silo silo sync examples/zapp --debug-all  # debug preset with debug dependencies
 uv run --package silo silo graph examples/zapp        # resolve and print the graph, build nothing
@@ -22,6 +23,8 @@ uv run --package silo silo cache clear builds git     # delete some caches, or a
 ```
 
 `SILO_HOME` defaults to `~/.silo`. It holds `store` (built packages), `profiles`, and `cache`. Everything under `cache` can be deleted at any time: `builds`, `downloads`, `git`, `snapshots`, `conan` and `registries`. The compiler is part of a build's id by kind and generation, so patch releases share store entries: the major version for gcc and clang, and Microsoft's compiler number for MSVC, where toolsets 14.40 to 14.49 are 194. On macOS the profile's `target` ends with the oldest macOS a build runs on (`arm64-apple-macos26.0`). `profile detect` writes the first release of the SDK's year, and editing it goes further back. A build folder is deleted once its package is in the store, except for local sources (kept so rebuilds are incremental) and failed builds (kept for inspection). The next attempt at a failed build starts with an empty build folder, and fetches the source again unless it was fetched and patched completely. A download or a git fetch that fails is tried twice more, after about 2 and 4 seconds, unless the server says the file is not there. Each build folder is locked, so a second silo building the same package waits and then reuses the result. Pass options with `-o key=value` for the root package or `-o zlib:key=value` for a dependency. `--source zlib=../zlib` builds that package from a local folder for one run.
+
+`-p` takes a profile's name or a `.toml` file. A file without `[compiler]` holds settings only, which go over the default profile, so it can be checked in while the compiler stays the machine's own. It is refused when it names another `os` or `arch` than the default profile has, so name such files after their system (`windows-static.toml`). `runtime = "static"` under `[settings]` links the C and C++ runtime into each binary (`/MT`) instead of using the DLLs (`/MD`, the default). It is part of the build id on Windows. Only MSVC offers the choice, and a profile that asks for it anywhere else is refused.
 
 ## Registries
 
@@ -236,7 +239,7 @@ A recipe is a `silopkg.py` holding a class that extends `SiloPackage`. `tinyxml2
 - Upstream build files often expect other target names. `CMakeDeps(self).alias("ZLIB::ZLIB", "zlib::zlib")` adds the name for this build only and makes `find_package(ZLIB)` work. An alias for a package or component that is not there fails in `generate()`.
 - The toolchain file stops CMake from finding packages installed on the machine. A recipe that needs one calls `CMakeGenerator(self).allow_system_packages()`.
 - MSVC compiles C++ with `/permissive-` in every language version, so it reads the language the way gcc and clang do. Without it, valid code such as libwebm's fails below C++20.
-- silo builds everything against the release DLL runtime on Windows (`/MD`), in debug builds too. An upstream build file that picks another one has to be told not to (see `libwebm` in silo-recipes and `msdfgen` in silo-recipes).
+- silo builds everything against one release runtime on Windows, in debug builds too: the DLL one (`/MD`), or the static one (`/MT`) when the profile says `runtime = "static"`. An upstream build file that picks another one has to be told not to (see `libwebm` in silo-recipes and `msdfgen` in silo-recipes).
 
 ### Meson and pkg-config
 

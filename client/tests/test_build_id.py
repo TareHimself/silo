@@ -1,7 +1,7 @@
 import pytest
 
 from silo.build_id import compiler_fingerprint, make_build_id, recipe_hash, relevant_settings
-from silo.enums import BuildMode
+from silo.enums import BuildMode, RuntimeLinkage
 from silo.errors import SiloError
 from silo.source import SourceSpec
 
@@ -16,7 +16,7 @@ def fetched(sha256: str = "aa") -> SourceSpec:
 
 def test_c_library_ignores_cxx_settings(load_demo_recipe):
     package = load_demo_recipe('    languages = ("c",)\n')
-    assert relevant_settings(package) == ["os", "arch", "compiler", "build_type"]
+    assert relevant_settings(package) == ["os", "arch", "compiler", "build_type", "runtime"]
 
 
 def test_header_only_ignores_binary_settings(load_demo_recipe):
@@ -64,6 +64,26 @@ def test_build_id_changes_with_the_build_type(load_demo_recipe, windows_profile)
     assert make_build_id(package, fetched(), windows_profile, RELEASE) != make_build_id(
         package, fetched(), windows_profile, BuildMode.Debug
     )
+
+
+def test_build_id_changes_with_the_runtime(load_demo_recipe, windows_profile):
+    package = load_demo_recipe()
+    baseline = make_build_id(package, fetched(), windows_profile, RELEASE)
+
+    windows_profile.settings.runtime = RuntimeLinkage.Static
+
+    assert make_build_id(package, fetched(), windows_profile, RELEASE) != baseline
+
+
+def test_build_id_leaves_the_runtime_out_where_the_compiler_has_one_only(
+    load_demo_recipe, linux_profile
+):
+    package = load_demo_recipe()
+    baseline = make_build_id(package, fetched(), linux_profile, RELEASE)
+
+    linux_profile.settings.runtime = RuntimeLinkage.Static
+
+    assert make_build_id(package, fetched(), linux_profile, RELEASE) == baseline
 
 
 def test_build_id_changes_when_a_file_is_added_to_the_recipe(load_demo_recipe, windows_profile):

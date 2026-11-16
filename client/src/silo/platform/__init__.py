@@ -2,7 +2,7 @@ import platform as host
 from typing import TYPE_CHECKING
 
 from silo.build_profile import CompilerProfile, Profile
-from silo.enums import Architecture, Platform
+from silo.enums import Architecture, Platform, RuntimeLinkage
 from silo.errors import SiloError
 
 if TYPE_CHECKING:
@@ -51,6 +51,18 @@ def backend_for(os: Platform) -> "PlatformBackend":
             from silo.platform.macos import MacOSBackend
 
             return MacOSBackend()
+
+
+def check_runtime(profile: Profile) -> None:
+    """Refuse a static runtime where the compiler has none to offer."""
+    if profile.settings.runtime is RuntimeLinkage.Dynamic:
+        return
+    if backend_for(profile.settings.os).runtime_library(profile) is None:
+        raise SiloError(
+            f"The profile asks for a {profile.settings.runtime.value} runtime, and "
+            f"{profile.compiler.kind.value} on {profile.settings.os.value} links one runtime "
+            "only. Leave the setting out of profiles for this system."
+        )
 
 
 def detect_compiler_like(wanted: Profile) -> CompilerProfile:

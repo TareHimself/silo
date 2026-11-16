@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from silo.build_context import BuildContext
-from silo.enums import BuildMode
+from silo.enums import BuildMode, RuntimeLinkage
 from silo.errors import CommandFailed, SiloError
 from silo.tools.cmake import CMakeBuild, CMakeGenerator
 from silo.tools.cmake.cmake_generator import toolchain_text
@@ -65,6 +65,12 @@ def test_toolchain_always_uses_the_release_runtime_on_windows(demo_package):
     toolchain = CMakeGenerator(demo_package()).generate().read_text(encoding="utf-8")
 
     assert 'set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")' in toolchain
+
+
+def test_a_profile_can_ask_for_the_static_runtime_on_windows(windows_profile):
+    windows_profile.settings.runtime = RuntimeLinkage.Static
+
+    assert 'set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")' in toolchain_text(windows_profile)
 
 
 def test_toolchain_finds_dependency_configs_next_to_itself(demo_package):

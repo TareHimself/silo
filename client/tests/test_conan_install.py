@@ -3,7 +3,7 @@ import os
 import pytest
 
 from silo.build_context import BuildContext
-from silo.enums import BuildMode, Compiler
+from silo.enums import BuildMode, Compiler, RuntimeLinkage
 from silo.errors import SiloError
 from silo.paths import conan_dir
 from silo.source import SourceSpec, fetch_source
@@ -56,6 +56,15 @@ def test_the_profile_keeps_the_release_runtime_in_a_debug_build(windows_profile)
     assert settings["build_type"] == "Debug"
     assert settings["compiler.runtime_type"] == "Release"
     assert settings["compiler.runtime"] == "dynamic"
+
+
+def test_the_profile_names_the_static_runtime_when_silo_links_it(windows_profile):
+    windows_profile.settings.runtime = RuntimeLinkage.Static
+
+    settings = conan_settings(windows_profile, BuildMode.Release)
+
+    assert settings["compiler.runtime"] == "static"
+    assert settings["compiler.runtime_type"] == "Release"
 
 
 def test_msvc_is_named_by_its_compiler_number(windows_profile):

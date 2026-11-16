@@ -2,16 +2,24 @@ import tomllib
 from pathlib import Path
 
 import tomli_w
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
-from silo.enums import Architecture, Compiler, Platform
+from silo.enums import Architecture, Compiler, Platform, RuntimeLinkage
+from silo.errors import SiloError
+
+# What a settings-only file may not change, since the compiler it is given was found for them
+FIXED_BY_THE_COMPILER = ("os", "arch")
 
 
 class Settings(BaseModel):
+    # A misspelled key in a settings-only file would otherwise change nothing, silently
+    model_config = ConfigDict(extra="forbid")
+
     os: Platform
     arch: Architecture
     cppstd: int = 20
     libcxx: str | None = None
+    runtime: RuntimeLinkage = RuntimeLinkage.Dynamic
 
 
 class CompilerProfile(BaseModel):
@@ -45,12 +53,35 @@ class CompilerProfile(BaseModel):
 class Profile(BaseModel):
     """What a machine can build with. Project decisions (options, build type) live elsewhere."""
 
+    model_config = ConfigDict(extra="forbid")
+
     settings: Settings
     compiler: CompilerProfile
 
     @classmethod
-    def load(cls, path: Path) -> "Profile":
-        return cls.model_validate(tomllib.loads(path.read_text(encoding="utf-8")))
+    def load(cls, path: Path, base: Path | None = None) -> "Profile":
+        """A file without a compiler holds settings only, which go over the profile at `base`."""
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        if "compiler" in data or base is None:
+            return cls.model_validate(data)
+        if not base.exists():
+            raise SiloError(
+                f"{path} names no compiler, so its settings go over the profile at {base}, "
+                "which is not there. Run `silo profile detect` first."
+            )
+        below = cls.load(base)
+        merged = below.model_dump(mode="json", exclude_none=True) | data
+        merged["settings"] = below.settings.model_dump(mode="json", exclude_none=True) | data.get(
+            "settings", {}
+        )
+        profile = cls.model_validate(merged)
+        for key in FIXED_BY_THE_COMPILER:
+            wanted, found = getattr(profile.settings, key), getattr(below.settings, key)
+            if wanted is not found:
+                raise SiloError(
+                    f"{path} is for {wanted.value}, and the profile at {base} is for {found.value}"
+                )
+        return profile
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

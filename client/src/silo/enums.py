@@ -17,6 +17,14 @@ class RuntimeLibrary(Enum):
     """Which C and C++ runtime a compiler links, where it offers a choice."""
 
     DynamicRelease = "dynamic_release"
+    StaticRelease = "static_release"
+
+
+class RuntimeLinkage(Enum):
+    """What a profile asks for: the runtime as a shared library, or inside each binary."""
+
+    Dynamic = "dynamic"
+    Static = "static"
 
 
 class Platform(Enum):
