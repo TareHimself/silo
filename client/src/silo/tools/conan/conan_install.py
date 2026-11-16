@@ -22,7 +22,10 @@ CONAN_ARCH = {
 }
 
 # compiler.runtime and compiler.runtime_type
-CONAN_RUNTIME = {RuntimeLibrary.DynamicRelease: ("dynamic", "Release")}
+CONAN_RUNTIME = {
+    RuntimeLibrary.DynamicRelease: ("dynamic", "Release"),
+    RuntimeLibrary.StaticRelease: ("static", "Release"),
+}
 
 # The GNU C++ library with the C++11 ABI, which gcc and clang both use on Linux
 GNU_LIBCXX = "libstdc++11"

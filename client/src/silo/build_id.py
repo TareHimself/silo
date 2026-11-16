@@ -6,15 +6,16 @@ import xxhash
 from silo.build_profile import Profile
 from silo.enums import BuildMode
 from silo.errors import SiloError
+from silo.platform import backend_for
 from silo.silo_package import SiloPackage
 from silo.source import SourceSpec
 
 # Bump only when silo's build helpers change what a build produces
 HELPERS_VERSION = "5"
 
-ALL_SETTINGS = ("os", "arch", "compiler", "build_type", "cppstd", "libcxx")
+ALL_SETTINGS = ("os", "arch", "compiler", "build_type", "runtime", "cppstd", "libcxx")
 CXX_ONLY_SETTINGS = {"cppstd", "libcxx"}
-BINARY_SETTINGS = {"os", "arch", "compiler", "build_type"}
+BINARY_SETTINGS = {"os", "arch", "compiler", "build_type", "runtime"}
 IGNORED_RECIPE_DIRS = {"__pycache__", ".silo", ".venv"}
 RECIPE_FILE = "silopkg.py"
 
@@ -69,9 +70,13 @@ def compiler_fingerprint(profile: Profile) -> str:
     return "-".join(parts)
 
 
-def setting_value(profile: Profile, build_type: BuildMode, setting: str) -> str:
+def setting_value(profile: Profile, build_type: BuildMode, setting: str) -> str | None:
+    """None for a setting that changes nothing about a build with this profile."""
     if setting == "compiler":
         return compiler_fingerprint(profile)
+    if setting == "runtime":
+        linked = backend_for(profile.settings.os).runtime_library(profile)
+        return linked and linked.value
     if setting == "build_type":
         return build_type.value
     value = getattr(profile.settings, setting)
@@ -90,7 +95,9 @@ def make_build_id(
     inputs.update(source.id.encode())
     inputs.update(HELPERS_VERSION.encode())
     for setting in relevant_settings(package):
-        inputs.update(f"{setting}={setting_value(profile, build_type, setting)}".encode())
+        value = setting_value(profile, build_type, setting)
+        if value is not None:
+            inputs.update(f"{setting}={value}".encode())
     inputs.update(package.options.model_dump_json().encode())
     for dependency_id in sorted(dependency_ids):
         inputs.update(dependency_id.encode())
